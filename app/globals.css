@@ -100,7 +100,27 @@
   transform: translateY(18px);
 }
 
+/* Copy that sits under a particle form dissolves as it scrolls up into it
+   (scroll-driven, reversible; static where unsupported). */
+@keyframes dissolve-up {
+  to {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(-10px);
+  }
+}
+@supports (animation-timeline: view()) {
+  .dissolve-up {
+    animation: dissolve-up linear both;
+    animation-timeline: view();
+    animation-range: cover 27% cover 41%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .dissolve-up {
+    filter: none;
+  }
   .rise {
     animation-name: none;
   }

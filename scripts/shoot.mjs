@@ -50,8 +50,10 @@ for (const vp of VIEWPORTS) {
     window.__mote.freeze(true);
     window.__mote.replay();
   });
-  for (const t of [0.6, 2.6, 3.6]) {
-    await page.evaluate((t) => window.__mote.advance(t), t === 0.6 ? 0.6 : 1.0);
+  let elapsed = 0;
+  for (const t of [0.6, 2.0, 3.2]) {
+    await page.evaluate((d) => window.__mote.advance(d), t - elapsed);
+    elapsed = t;
     if (t === 0.6) await page.waitForTimeout(400);
     await snap(`intro-${t}s`);
   }

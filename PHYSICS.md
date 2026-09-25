@@ -424,6 +424,9 @@ Sprite fill and blending dominate, so budgets scale with GPU class:
 | high | 320² | 102 400 | default desktop / laptop |
 | ultra | 448² | 200 704 | discrete / Apple Pro-class GPU |
 
+The ~0.6 s build (6 forms × N samples, tiering, matching) runs in a module
+**Web Worker** (`lib/engine/build.worker.ts`), with an inline fallback.
+
 Adaptive at runtime: the frame-time monitor compares the median frame delta
 with the display's refresh interval. Sustained misses drop a **tier quarter**
 (draw range + simulation scissor shrink by ¼ of the rows; sprite size grows by
@@ -502,6 +505,7 @@ linear sRGB. One source of truth.
 | Failure | Symptom | Guard |
 |---|---|---|
 | NaN/Inf enters state | particle vanishes forever / spreads garbage | shader checks `x != x` and \|x\| > 1e4 → reset to target, v = 0 |
+| NaN in a *colour* channel (found in practice: a field sample jittered past its far edge made `pow(negative)`) | bloom's 13-tap downsample smears one NaN pixel into black rectangles | fixed at the source (clamped sampling) + the guard now also covers brightness/accent; sprites with non-finite alpha are culled |
 | Frame hitch / slow device | spiral of death | substep cap 4 + backlog drop (time dilation) |
 | Tab switch | giant dt, everything jumps | loop paused on hidden; clock reset; dt clamp 50 ms |
 | Cursor singularity | popcorn near the pointer | bounded poly6 kernel, ε in normalisation |
@@ -515,7 +519,9 @@ linear sRGB. One source of truth.
 | Chaotic morphs | particles cross everywhere | view-space median-bisection matching |
 | Uneven density after adapting count | holes / clumps | progressive R2 tiers |
 | WebGL context loss | frozen/black canvas | `webglcontextlost` → stop, `restored` → rebuild |
-| React Strict Mode / HMR | double init, leaked contexts | idempotent mount; fresh `<canvas>` per mount; `dispose()` + `forceContextLoss()` |
+| React Strict Mode / HMR | double init, leaked contexts | idempotent mount; fresh `<canvas>` per mount; `dispose()` + `forceContextLoss()`; verified: dev creates 2 contexts, loses 1, one canvas left |
+| Async start races (found in practice) | an offscreen/hidden engine restarted by the end of its own warm-up | a `ready` gate: the loop only starts through the same visible ∧ on-screen ∧ ready check |
+| Main-thread stalls at load | 470 ms long task (sampling + matching) | build in a module Web Worker; programs compiled with `compileAsync`; float textures uploaded one per frame |
 | Missing float render targets | black canvas | capability check → DOM-only graceful fallback |
 | Stuck keys (blur, repeat) | key stays down | release all on `blur`; repeats ignored for ripples |
 | Layout thrash | scroll jank | section anchors cached, recomputed on resize/fonts only |
@@ -658,6 +664,21 @@ generated from `lib/engine/params.ts` (`npm run params:doc`).
 * **Analytic Ricker rings** instead of a height field. §4.
 * **WebGL2 GPGPU with MRT**, no WebGPU. §5.
 * **Premultiplied over-blending** + energy-conserving DOF. §6.
+* **Brightness = colour, opacity = coverage** (after the prototype flattened
+  the keyboard). §6.
+* **Cursor presence follows cursor speed** (a resting cursor punched a hole). §2.3.
+* **Five forms** — keyboard, exploded switch, ridgeline waveform, wordmark,
+  horizon — so the story ends on a calm field the lineup and CTA can sit on.
+* **Ridgeline waveform** ("Unknown Pleasures") rather than a DAW band: it is
+  3-D, so it earns the particle system, and typed keys become ridges that
+  travel back in time. Waveform particles are 6× stiffer (lag 0.14 s) so
+  they track the live signal.
+* **Accent use**: Esc keycap, the switch stem (stems are colour-coded in real
+  switches), the "Batch 04" dot, text selection. Nothing else.
+* **Type**: Instrument Sans (display + body, weight 440 for large sizes, tight
+  tracking) with Geist Mono for tracked uppercase labels; both via next/font.
+* **Copy dissolves into forms** it would otherwise cross (scroll-driven CSS,
+  progressive enhancement) rather than moving the forms out of the way.
 
 ---
 
@@ -748,3 +769,26 @@ motion strips (`scripts/strip.mjs`), numeric probes → critique → change.
   occasional hitches; settles without oscillating on a borderline device.
 * **Intro** delay 0.5 → 0.3 s, duration 4.4 → 4.1 s: at 2.6 s the old intro
   still showed no structure at all.
+
+### Pass 3 — transitions, medium widths, load, finish
+* **Transition strips** for every section pair. Studio → lineup showed the
+  studio copy rising straight through the still-solid wordmark for ~300 px of
+  scroll. The copy now dissolves (opacity, 6 px blur, −10 px) as it reaches
+  the letters via `animation-timeline: view()` — reversible, and static where
+  unsupported. First attempt faded at the anchor because the range was
+  measured on a padded wrapper; moved to the copy block itself.
+* **1024 px.** Anatomy callouts landed on the copy column. The engine now
+  measures the column (`data-callout-bound`) and fades the labels out when
+  they would intrude; the copy narrows at `md`.
+* **Load.** Shader programs compile through `compileAsync` and the float
+  textures upload one per frame before the canvas appears: repeat loads show
+  no long tasks; a cold first load still has one ~200 ms compile on this
+  driver (no parallel-compile extension under ANGLE/EGL).
+* **Start race.** The warm-up exposed an IntersectionObserver race that could
+  restart an offscreen engine; fixed with a `ready` gate (caught by
+  `verify.mjs`).
+* **Finish.** Sound toggle grouped under its copy instead of floating over
+  the ridge; ridgeline lowered; wordmark haze is a Gaussian cloud (the box
+  showed its edges); keyboard case chamfer 1.35 → 1.08 and walls 0.52 → 0.40
+  so the key tops lead; mobile wordmark 86 → 80 % width; mobile anatomy copy
+  lower.

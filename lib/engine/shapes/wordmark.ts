@@ -72,18 +72,24 @@ export function rasterizeWordmark(text: string, family: string, weight = 560, tr
   return { mask, w: mw, h: mh, aspect: mw / mh };
 }
 
+/** A soft Gaussian cloud behind the glyphs (a box would show its edges). */
 function haze(part: Part, area: number, ext: { x: number; y: number; z: number; z0: number }): Primitive {
   return {
     area,
     weight: 1,
     part,
     sample(count, rng, emit) {
+      const g = () => {
+        const u = Math.max(rng(), 1e-9);
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng());
+      };
       for (let i = 0; i < count; i++) {
-        const x = (rng() * 2 - 1) * ext.x;
-        const y = (rng() * 2 - 1) * ext.y;
-        const z = ext.z0 - rng() * ext.z;
+        const x = g() * ext.x * 0.5;
+        const y = g() * ext.y * 0.5;
+        const z = ext.z0 - Math.abs(g()) * ext.z * 0.5;
+        const r2 = (x / ext.x) ** 2 + (y / ext.y) ** 2;
         const b = rng();
-        emit(x, y, z, 0, 0, 0, 0.35 + 0.65 * b * b * b);
+        emit(x, y, z, 0, 0, 0, (0.35 + 0.65 * b * b * b) * Math.exp(-1.5 * r2));
       }
     },
   };

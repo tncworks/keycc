@@ -157,8 +157,8 @@ export default function Home() {
 
         {/* ----------------------------------------------------------- anatomy */}
         <section id="anatomy" data-form="exploded" className="relative flex min-h-[125svh] items-center" aria-labelledby="anatomy-title">
-          <div className="mx-auto w-full max-w-[1320px] px-6 pt-[67svh] pb-24 md:px-10 md:py-40">
-            <div className="max-w-[30rem] md:max-w-[26rem] lg:max-w-[30rem]">
+          <div className="mx-auto w-full max-w-[1320px] px-6 pt-[70svh] pb-24 md:px-10 md:py-40">
+            <div data-callout-bound className="max-w-[30rem] md:max-w-[22rem] lg:max-w-[26rem] xl:max-w-[30rem]">
               <Label data-reveal="">01 — Anatomy</Label>
               <h2 id="anatomy-title" data-reveal="" className="mt-5 text-headline font-[440] text-ink [--d:80ms]">
                 Five parts. Nothing wasted.
@@ -193,18 +193,16 @@ export default function Home() {
         {/* ------------------------------------------------------------- sound */}
         <section id="sound" data-form="waveform" className="relative min-h-[125svh]" aria-labelledby="sound-title">
           <div className="mx-auto w-full max-w-[1320px] px-6 pt-[26svh] pb-[62svh] md:px-10 md:pt-[30svh]">
-            <div className="grid gap-10 md:grid-cols-[minmax(0,32rem)_1fr] md:items-end">
-              <div>
-                <Label data-reveal="">02 — Acoustics</Label>
-                <h2 id="sound-title" data-reveal="" className="mt-5 text-headline font-[440] text-ink [--d:80ms]">
-                  Tuned to a lower note.
-                </h2>
-                <p data-reveal="" className="mt-7 max-w-[28rem] text-lede text-muted [--d:160ms]">
-                  A PORON gasket, a silicone case pad and a thin sheet of PE under the PCB take the hollow ring out of a metal case.
-                  What is left is low and short: a thock, not a clack.
-                </p>
-              </div>
-              <div data-reveal="" className="flex flex-col items-start gap-4 md:items-end [--d:240ms]">
+            <div className="max-w-[32rem]">
+              <Label data-reveal="">02 — Acoustics</Label>
+              <h2 id="sound-title" data-reveal="" className="mt-5 text-headline font-[440] text-ink [--d:80ms]">
+                Tuned to a lower note.
+              </h2>
+              <p data-reveal="" className="mt-7 max-w-[28rem] text-lede text-muted [--d:160ms]">
+                A PORON gasket, a silicone case pad and a thin sheet of PE under the PCB take the hollow ring out of a metal case.
+                What is left is low and short: a thock, not a clack.
+              </p>
+              <div data-reveal="" className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-3 [--d:240ms]">
                 <SoundToggle variant="inline" />
                 <Label className="text-faint">Type to see it</Label>
               </div>
@@ -218,13 +216,15 @@ export default function Home() {
             03 — Studio
           </Label>
           <div className="mx-auto max-w-[34rem] px-6 pt-[30svh] md:pt-[26svh]">
-            <h2 id="studio-title" data-reveal="" className="text-title font-[440] text-ink">
-              Made slowly, in small numbers.
-            </h2>
-            <p data-reveal="" className="mt-5 text-lede text-muted [--d:100ms]">
-              Machined from a single block of 6063 aluminium, anodised, and assembled by one person in our {BRAND.city} studio. Each board
-              carries the initials of the hands that built it.
-            </p>
+            <div className="dissolve-up">
+              <h2 id="studio-title" data-reveal="" className="text-title font-[440] text-ink">
+                Made slowly, in small numbers.
+              </h2>
+              <p data-reveal="" className="mt-5 text-lede text-muted [--d:100ms]">
+                Machined from a single block of 6063 aluminium, anodised, and assembled by one person in our {BRAND.city} studio. Each board
+                carries the initials of the hands that built it.
+              </p>
+            </div>
           </div>
         </section>
 

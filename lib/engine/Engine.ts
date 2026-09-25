@@ -11,6 +11,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Matrix4,
+  Mesh,
   PerspectiveCamera,
   Points,
   Scene,
@@ -161,6 +162,7 @@ export class Engine {
   private readonly keyTops = keyboardKeyTops();
 
   private raf = 0;
+  private ready = false;
   private running = false;
   private disposed = false;
   private lastNow = 0;
@@ -216,6 +218,7 @@ export class Engine {
   // DOM callouts pinned to the exploded parts
   private callouts: { el: HTMLElement; y: number; hx: number; w: number; h: number; left: number; top: number }[] = [];
   private readonly calloutP = new Vector3();
+  private calloutBound: HTMLElement | null = null;
 
   // ------------------------------------------------------------------------
 
@@ -252,9 +255,16 @@ export class Engine {
     if (opts.signal?.aborted) return bail();
     const assets = await buildAssets(opts.forms, size * size, opts.seed ?? 7, opts.signal);
     if (!assets || opts.signal?.aborted) return bail();
-    opts.host.appendChild(canvas);
     const engine = new Engine(opts, canvas, renderer, tier, assets);
-    engine.start();
+    await engine.warmup();
+    if (opts.signal?.aborted) {
+      engine.dispose();
+      return null;
+    }
+    opts.host.appendChild(canvas);
+    engine.ready = true;
+    engine.syncRunning();
+    if (opts.debug || opts.shot) engine.installHooks();
     return engine;
   }
 
@@ -392,11 +402,42 @@ export class Engine {
     this.updatePoses(0);
     this.initState();
     if (this.reduced) this.introClock = 1e6;
-    if (opts.debug || opts.shot) this.installHooks();
   }
 
   // ------------------------------------------------------------------------
   // lifecycle
+
+  /**
+   * Spread first-frame work over several frames: compile every program in
+   * parallel (KHR_parallel_shader_compile via compileAsync) and upload the
+   * ~20 MB of float textures one per frame, instead of one long task.
+   */
+  private async warmup() {
+    const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+    const scene = new Scene();
+    const mats = [this.simMat, this.initMat, this.post.down, this.post.up, this.post.composite];
+    const geo = new BufferGeometry();
+    geo.setAttribute("position", new BufferAttribute(new Float32Array([-1, -1, 3, -1, -1, 3]), 2));
+    geo.boundingSphere = new Sphere(new Vector3(), 10);
+    for (const m of mats) {
+      const mesh = new Mesh(geo, m);
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+    }
+    scene.add(this.points);
+    try {
+      await this.renderer.compileAsync(scene, this.camera);
+    } catch {
+      /* fall back to compiling on first use */
+    }
+    this.pointsScene.add(this.points);
+    geo.dispose();
+    for (const t of [...this.formPos, ...this.formNrm, ...this.textures]) {
+      if (this.disposed) return;
+      this.renderer.initTexture(t);
+      await nextFrame();
+    }
+  }
 
   private start() {
     if (this.running || this.disposed) return;
@@ -411,7 +452,7 @@ export class Engine {
   }
 
   private syncRunning() {
-    const want = this.visible && this.onScreen && !this.contextLost && !this.disposed;
+    const want = this.ready && this.visible && this.onScreen && !this.contextLost && !this.disposed;
     if (want && !this.running) this.start();
     else if (!want && this.running) this.stop();
   }
@@ -548,6 +589,7 @@ export class Engine {
 
   private measureCallouts() {
     this.callouts = [];
+    this.calloutBound = document.querySelector<HTMLElement>("[data-callout-bound]");
     for (const el of document.querySelectorAll<HTMLElement>("[data-callout]")) {
       const part = EXPLODED_PARTS.find((p) => p.name === el.dataset.callout);
       const text = el.firstElementChild as HTMLElement | null;
@@ -588,7 +630,12 @@ export class Engine {
       col = Math.min(col, minX);
     }
     col -= 48;
-    const alpha = (near * near * (3 - 2 * near)).toFixed(3);
+    // never draw labels over the copy column (medium widths bring them close)
+    const widest = this.callouts.reduce((m, c) => Math.max(m, c.w), 0);
+    const bound = this.calloutBound ? this.calloutBound.getBoundingClientRect().right + 24 : -Infinity;
+    const room = Math.min(Math.max((col - 12 - widest - bound) / 40, 0), 1);
+    const k = near * room;
+    const alpha = (k * k * (3 - 2 * k)).toFixed(3);
     for (const c of this.callouts) {
       const lead = Math.max(c.left - 12 - col, 8);
       c.el.style.transform = `translate3d(${(col - c.w - 12).toFixed(1)}px, ${(c.top - c.h / 2).toFixed(1)}px, 0)`;

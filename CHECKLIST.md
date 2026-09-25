@@ -1,71 +1,79 @@
 # CHECKLIST — acceptance criteria from the brief
 
 Legend: `[x]` done and verified · `[~]` partially done · `[ ]` not started.
-Each item names how it is verified.
+Evidence in *italics* names how each item was verified. Browser checks are
+`npm run verify` (19 checks, run against dev **and** the production build);
+screenshots are `npm run shoot` (1440 × 900 and 390 × 844, ~34 frames).
 
 ## Phase 1 — think before coding
 
-- [x] PHYSICS.md written before any code (git history shows it first)
-- [x] Integration: semi-implicit Euler vs Verlet, fixed timestep + accumulator, dt clamping after tab switches
-- [x] Spring-damper: stiffness + damping ratio chosen with the maths shown (soft settle, minimal overshoot)
-- [x] Curl noise ambient drift (divergence-free, no clumping)
-- [x] Cursor field with smooth falloff (never raw 1/r²)
-- [x] Drag and velocity limits
-- [x] Morphs: area-weighted + blue-noise sampling, crossing-avoiding assignment, staggered release
-- [x] Keypress: height field vs analytic ring — choice justified
-- [x] GPU architecture: ping-pong float textures, passes per frame, precision, per-tier budget
-- [x] Rendering: soft round sprites, depth via size + alpha, restrained bloom, blending choice justified
-- [x] Failure modes and guards
-- [x] Table of every tunable parameter with defaults and ranges (generated from params.ts)
-- [x] Engine prototyped alone (one shape + cursor) and feel tuned before the site
-- [~] git init, commit after each phase (Phase 1, Phase 2 committed)
+- [x] PHYSICS.md written before any code — *first commit `f72a6c4` contains only PHYSICS.md + CHECKLIST.md*
+- [x] Integration: semi-implicit Euler vs Verlet, fixed timestep + accumulator, dt clamping after tab switches — *PHYSICS §1; stability margin checked numerically*
+- [x] Spring-damper: stiffness + damping ratio with the maths shown — *§2.1; `npm run physics:check`: 0.86 % overshoot, 0.80 s settle on the real integrator*
+- [x] Curl noise ambient drift (divergence-free) — *§2.2; measured \|∇·u\| / \|∂u\| = 4e-6*
+- [x] Cursor field with smooth falloff (never raw 1/r²) — *§2.3 poly6 kernel, speed-dependent presence*
+- [x] Drag and velocity limits — *§2.4; limits scale with the frame on portrait*
+- [x] Morphs: area-weighted + blue-noise sampling, crossing-avoiding assignment, staggered release — *§3; matching cuts mean travel 48–56 % vs random on like-scaled forms*
+- [x] Keypress: height field vs analytic ring — justified — *§4*
+- [x] GPU architecture: ping-pong float textures, passes per frame, precision, per-tier budget — *§5*
+- [x] Rendering: soft sprites, depth via size + alpha, restrained bloom, blending justified — *§6*
+- [x] Failure modes and guards — *§7, incl. three found in practice*
+- [x] Table of every tunable parameter (69) — *§10, generated from `params.ts`; `npm run params:doc -- --check`*
+- [x] Engine prototyped alone (keyboard + cursor) and tuned before the site — *`/lab`, commit `a92edf5`, PHYSICS §12*
+- [x] git init, commit after each phase — *`git log`: 1a, 1b, 2, 3 (+ polish commits)*
 
 ## Phase 2 — the site
 
 Stack
-- [x] Latest Next.js (App Router) + TypeScript strict
-- [x] Tailwind CSS v4 CSS-first: palette, fonts, type scale as `@theme` tokens in globals.css; no tailwind.config.js
-- [x] Shaders read particle colours from the same CSS variables at startup
-- [x] Three.js with custom GLSL (GLSL in TS template strings, no custom loaders)
-- [x] Tailwind for DOM; particles in ONE fixed full-screen canvas behind content
-- [x] All WebGL client-only: 'use client' + next/dynamic({ ssr:false }) from a client component
-- [~] Idempotent init/teardown (Strict Mode), every GPU resource disposed, no leaked contexts on HMR — implemented, verification pending
-- [x] Fonts via next/font
-- [x] Everything procedural, no image assets; all randomness seeded
+- [x] Latest Next.js (16.3.6, App Router, Turbopack) + TypeScript strict — *`next build` clean*
+- [x] Tailwind v4 CSS-first: palette, fonts, type scale as `@theme` tokens in globals.css; no tailwind.config.js
+- [x] Shaders read particle colours from the same CSS variables at startup — *`lib/engine/colors.ts` reads `--color-ground/particle/accent`*
+- [x] Three.js with custom GLSL in TS template strings, no custom loaders — *`lib/engine/glsl/*.ts`*
+- [x] Tailwind for DOM; ONE fixed full-screen canvas behind content — *verify: exactly one canvas*
+- [x] WebGL client-only: 'use client' + next/dynamic({ ssr:false }) from a client component — *`components/ParticleStage.tsx`; pages prerender as static*
+- [x] Idempotent init/teardown, every GPU resource disposed, no leaked contexts — *verify: dev Strict Mode creates 2 contexts / loses 1 / 1 canvas; prod 1/0/1*
+- [x] Fonts via next/font (Instrument Sans + Geist Mono)
+- [x] Procedural, no image assets (favicon is `ImageResponse`); all randomness seeded (`?seed=`)
 
 Sections
-- [x] Hero: dust drifts in and assembles into a 3D 75% keyboard from a layout table (1u = 19.05 mm, tops narrower than bases)
-- [~] Hero: slow parallax; ambient motion never fully stops — implemented, verification pending
-- [~] Real typing: physical key depresses matching particle keycap + ripple through the field — implemented, verification pending
-- [~] Typing does not break keyboard scrolling (Space / PgDn / arrows / Home / End) — implemented, verification pending
-- [~] Subtle "type anything" hint — implemented, verification pending
-- [x] Scroll story, 3–4 sections, each morphs to a new form (exploded keycap+switch, waveform reacting to typing, wordmark)
-- [~] Morphs reverse cleanly when scrolling up — implemented, verification pending
-- [~] Optional Web Audio key sounds, muted by default — implemented, verification pending
-- [x] Product lineup, CTA, footer with tasteful placeholder copy
+- [x] Hero: dust drifts in and assembles into a 3-D 75 % keyboard from a layout table (1u = 19.05 mm, tops narrower than bases, sculpted rows) — *shots `*-00…03`*
+- [x] Hero: slow parallax; ambient motion never stops — *at-rest probe: bound particles drift ≈1 px/s, loose motes ≈17 px/s; camera breathes*
+- [x] Physical key depresses its particle keycap + ripple through the field — *verify (key press 0.996 after 100 ms); shots `hero-keypress`, `exploded-keypress`, `waveform-typed`*
+- [x] Typing never breaks keyboard scrolling — *verify: Space / PgDn / End / Home scroll natively*
+- [x] Subtle "type anything" hint (touch devices: "drag through the dust")
+- [x] Scroll story with morphs: exploded keycap + switch (labelled), waveform that reacts to typing, wordmark, horizon — *shots + motion strips*
+- [x] Morphs reverse cleanly — *verify: after keyboard → field → keyboard, mean error 0.015 u of 1.4 u travelled*
+- [x] Optional Web Audio key sounds, muted by default — *verify: aria-pressed false → true, no errors*
+- [x] Product lineup, CTA, footer with placeholder copy
 
 Design
-- [x] Near-black background, warm off-white particles, at most one muted accent
-- [~] Large confident type on a clear scale, generous whitespace, small tracked uppercase labels — implemented, verification pending
-- [~] Motion slow and eased, never bouncy or frantic — implemented, verification pending
+- [x] Near-black ground, warm off-white particles, one muted accent (Esc, stem, one dot)
+- [x] Large confident type on a clear scale, whitespace, small tracked uppercase labels — *contrast: ink 15.9, muted 5.96, faint 4.66 : 1*
+- [x] Motion slow and eased, never bouncy — *ζ = 0.82, eased moves land with 0.16 % overshoot*
 
 Performance
-- [~] Target 60 fps on a mid-range laptop, adaptive particle count — implemented, verification pending
-- [~] Pause when tab hidden or canvas offscreen — implemented, verification pending
-- [~] Touch acts as the cursor on mobile — implemented, verification pending
-- [~] prefers-reduced-motion respected — implemented, verification pending
-- [~] Responsive down to 375 px — implemented, verification pending
-- [~] `?debug`: fps meter, particle count, lil-gui for every PHYSICS.md parameter, hooks to freeze time and set scroll/morph progress — implemented, verification pending
+- [x] Target 60 fps on a mid-range laptop, adaptive particle count — *cost reasoned in PHYSICS §9; `npm run adaptive:check`; ?debug shows real fps*
+- [x] Pause when tab hidden or canvas offscreen — *verify (both)*
+- [x] Touch acts as the cursor — *verify: presence 0.92 dragging, 0.017 after release*
+- [x] prefers-reduced-motion respected — *verify: no intro flight, dissolve morphs, no Lenis, no cursor push, light-only ripples*
+- [x] Responsive down to 375 px — *verify: no overflow at 375/390/768/1024/1440; shots at 390 and 1024*
+- [x] `?debug`: fps meter, particle count, lil-gui for every parameter (77 controls), freeze time, set scroll/morph/intro progress — *verify*
 
 ## Phase 3 — verify and polish
 
-- [ ] CHECKLIST.md kept current; done/left printed at the end of every turn
-- [ ] Playwright screenshots of every section at 1440 px and 390 px, incl. mid-morph frames via debug hooks
-- [x] Headless WebGL works (launch flags fixed, not skipped)
-- [ ] Per-frame cost reasoned (PHYSICS.md §9); real fps left to the ?debug overlay
-- [ ] Polish pass 1 (physics feel, transition timing, typography & spacing, colour, mobile) — logged
-- [ ] Polish pass 2 — logged
-- [ ] Polish pass 3 — logged
-- [~] `npm run build` clean (clean at Phase 2; re-verify at the end)
-- [ ] Zero console errors
-- [ ] Screenshots genuinely look premium
+- [x] CHECKLIST.md kept current; done/left printed at the end of the turn
+- [x] Playwright screenshots of every section at 1440 and 390, incl. mid-morph frames — *`npm run shoot` (dev and prod), plus `scripts/strip.mjs` motion strips*
+- [x] Headless WebGL works — *real GPU via ANGLE/EGL (`scripts/browser.mjs`), not SwiftShader*
+- [x] Per-frame cost reasoned — *PHYSICS §9; startup long tasks measured instead*
+- [x] Polish pass 1 (grain, hero, mobile placement, portrait physics) — *PHYSICS §13*
+- [x] Polish pass 2 (callouts, contrast, dust, choreography, worker, adaptive bugs) — *PHYSICS §13*
+- [x] Polish pass 3 (transitions, 1024 px, load, finish) — *PHYSICS §13*
+- [x] `npm run build` clean; `eslint` clean
+- [x] Zero console errors — *verify + every shoot run: dev and production*
+- [x] Screenshots look premium — *final sets in `shots/site/`*
+
+## Not done / known limits
+
+- Real-device fps (a physical mid-range laptop and phones) is not measured here: headless numbers are not meaningful, so the budget is argued in PHYSICS §9 and left to the `?debug` meter.
+- A cold first visit still has one ~200 ms shader-compile task on drivers without KHR_parallel_shader_compile.
+- HMR was not driven automatically; Strict Mode's mount → dispose → mount (the same code path) is verified.

@@ -139,8 +139,9 @@ export function keyboardPrimitives(rng: Rng): Primitive[] {
   const flat = (y: number) => () => y;
   const wedge = (_x: number, z: number) => -8 - ((OUTER.hz - z) / (2 * OUTER.hz)) * 12;
   const rim = part(-1, 0.78);
-  const chamfer = part(-1, 1.35);
-  const wall = part(-1, 0.52);
+  // the case recedes so the key tops lead: a soft chamfer glint, darker walls
+  const chamfer = part(-1, 1.08);
+  const wall = part(-1, 0.4);
   const inner = part(-1, 0.4);
   const plate = part(-1, 0.3);
   const top = { hx: OUTER.hx - CHAMFER, hz: OUTER.hz - CHAMFER, r: OUTER.r - CHAMFER };

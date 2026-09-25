@@ -53,10 +53,10 @@ export function formPose(name: FormName, L: Layout, time: number, out: Matrix4):
     case "waveform": {
       const s = (mix(0.98, 0.9, w) * 2 * L.halfW) / WAVE.width;
       // portrait screens are narrow: let the ridges stand taller
-      return compose(out, 0, L.halfH * mix(-0.2, -0.3, w), 0, WAVE_PITCH, 0, s, 0, mix(1.8, 1, w));
+      return compose(out, 0, L.halfH * mix(-0.2, -0.36, w), 0, WAVE_PITCH, 0, s, 0, mix(1.8, 1, w));
     }
     case "wordmark": {
-      const s = (mix(0.86, 0.6, w) * 2 * L.halfW) / WORDMARK_WIDTH;
+      const s = (mix(0.8, 0.6, w) * 2 * L.halfW) / WORDMARK_WIDTH;
       return compose(out, 0, L.halfH * mix(0.1, 0.04, w), 0, 0, 0, s);
     }
     case "field": {
