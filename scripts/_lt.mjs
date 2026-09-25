@@ -1,0 +1,10 @@
+import { launch, watchConsole } from "./browser.mjs";
+const b = await launch(); const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const logs = []; watchConsole(p, logs);
+await p.addInitScript(() => { window.__lt = []; new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push(Math.round(e.duration)); }).observe({ type: "longtask", buffered: true }); });
+await p.goto("http://localhost:3100/?debug", { waitUntil: "networkidle" });
+await p.waitForFunction(() => window.__mote, null, { timeout: 120000 }); await p.waitForTimeout(1000);
+const s = await p.evaluate(() => window.__mote.stats());
+console.log("built in:", s.built, "build ms:", Math.round(s.buildMs), "long tasks (ms):", JSON.stringify(await p.evaluate(() => window.__lt)));
+console.log(logs.join("\n") || "console clean");
+await b.close();

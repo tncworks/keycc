@@ -597,11 +597,12 @@ generated from `lib/engine/params.ts` (`npm run params:doc`).
 | morph | `window` | 0.55 | 0.1 – 1 |  | share of the transition each particle travels in |
 | morph | `jitter` | 0.25 | 0 – 0.6 |  | randomness mixed into the release order |
 | morph | `arc` | 0.22 | 0 – 1 | u | mid-flight lift toward the camera |
-| morph | `smoothing` | 0.35 | 0 – 1.5 | s | critically-damped smoothing of scroll progress |
+| morph | `smoothing` | 0.25 | 0 – 1.5 | s | critically-damped smoothing of scroll progress |
 | morph | `maxRate` | 1.2 | 0.2 – 5 | 1/s | max morph speed (shapes per second) |
-| morph | `hold` | 0.3 | 0 – 0.45 |  | share of the scroll between sections where a form holds |
-| intro | `duration` | 4.4 | 1 – 10 | s | dust → keyboard assembly time |
-| intro | `delay` | 0.5 | 0 – 3 | s | dust drift before assembly starts |
+| morph | `holdOut` | 0.1 | 0 – 0.45 |  | scroll share a form holds after its section starts leaving |
+| morph | `holdIn` | 0.36 | 0 – 0.45 |  | scroll share the next form is complete before its section is centred |
+| intro | `duration` | 4.1 | 1 – 10 | s | dust → keyboard assembly time |
+| intro | `delay` | 0.3 | 0 – 3 | s | dust drift before assembly starts |
 | intro | `window` | 0.42 | 0.1 – 1 |  | share of the intro each particle travels in |
 | keys | `travel` | 0.04 | 0 – 0.1 | u | key travel (4.0 mm) |
 | keys | `pressTime` | 0.018 | 0.005 – 0.1 | s | time constant going down |
@@ -637,7 +638,7 @@ generated from `lib/engine/params.ts` (`npm run params:doc`).
 | parallax | `smoothing` | 1.2 | 0.05 – 4 | s | parallax time constant |
 | parallax | `breathe` | 0.9 | 0 – 4 | ° | slow autonomous camera drift |
 
-68 parameters, all live in `?debug`.
+69 parameters, all live in `?debug`.
 <!-- PARAMS:END -->
 
 
@@ -686,3 +687,64 @@ Prototype (`/lab`, keyboard + cursor, N = 102 400, Intel UHD 770 via headless AN
   median **0.016 px/frame** (≈ 1 px/s — alive, never still), loose motes up to
   0.29 px/frame; frame-to-frame acceleration median **0.0003 px/frame²** —
   i.e. no integration jitter at rest.
+
+---
+
+## 13. Polish log
+
+Each pass: build → Playwright shots at 1440 and 390 px (`npm run shoot`),
+motion strips (`scripts/strip.mjs`), numeric probes → critique → change.
+
+### Pass 1 — grain, hero composition, mobile placement
+* **Particle grain.** A/B of three sprite settings on the settled keyboard
+  (0.0095/0.35/0.8 → 0.0082/0.25/0.72 → 0.0072/0.2/0.85). The first read as
+  sandpaper, the last as sparkly noise; the middle keeps the form cohesive
+  while still reading as particulate. Adopted `size 0.0082, sizeJitter 0.25,
+  alpha 0.72`.
+* **Hero.** The headline crowded the keyboard (60 px) and left dead space
+  below it. Keyboard moved to −0.2 frame-heights and scaled 0.93 on wide
+  screens; copy starts at 13 svh. Mobile: the keyboard sat on top of the
+  CTA — moved to −0.4 frame-heights (below the CTA) and the portrait frame
+  widened 3.75 → 4.0 u so it no longer touches the screen edges.
+* **Touch.** "Type anything" means nothing on a phone: coarse pointers see
+  "Drag through the dust" (and it sits in the centre column; the hidden
+  "Scroll" label had pushed it left).
+* **Sound section.** At its scroll anchor the copy sat under the header;
+  top padding moved to 30 svh so copy and ridgeline share the viewport.
+* **Horizon.** The near edge of the field read as coarse gravel under the
+  reserve form: near edge pulled back (z 2.4 → 1.6) and near particles
+  dimmed quadratically.
+* **Portrait physics bug.** On phones the intro was still assembling at
+  5.6 s: the dust is scaled 2.3× to fill the taller frame but the speed and
+  acceleration clamps were absolute. Limits now scale with the frame height.
+* **Header** scrim strengthened so headlines passing under the nav stay clean.
+
+### Pass 2 — anatomy, contrast, choreography, load
+* **Anatomy callouts.** "Five parts" now names them: the engine projects
+  each part of the exploded switch every frame and pins a DOM label on a
+  common column with a leader line to the part's near edge (a technical
+  drawing that follows the model's sway). Screen readers get the same list.
+* **Contrast.** `--color-faint` measured 2.86 : 1 on the ground — below AA
+  for the 11 px labels it is used on. Now #817a6f = 4.66 : 1 (muted 5.96,
+  ink 15.9, accent 5.89).
+* **Dust at load.** The initial haze looked like dense snow behind the
+  headline. Lit motes 17 % → 10 %, dimmer; the headline now owns the first
+  second and the keyboard materialises after.
+* **Choreography.** A motion strip of a real 1.4 s scroll from hero to
+  anatomy showed the form lagging the scroll by ~0.6 s (smoother + release
+  easing + spring lag), so flying particles crossed the anatomy copy. The
+  symmetric hold became `holdOut 0.1 / holdIn 0.36` (leave early, arrive
+  early) and the progress smoother 0.35 → 0.25 s. A little overlap mid-flight
+  remains by design — resting states are always clean.
+* **Main-thread load.** A 472 ms long task at startup was the shape build +
+  matching. It now runs in a module Web Worker (`build.worker.ts`, Turbopack
+  `new Worker(new URL(...))`), with an inline fallback; remaining startup
+  tasks (shader compile, float texture upload) are 120–170 ms.
+* **Adaptive quality.** `scripts/adaptive-check.mjs` drives the monitor with
+  synthetic frame times and exposed two bugs: an always-slow device was
+  learned as a "30 Hz display" (refresh estimate now capped at 60 Hz), and
+  every fast step-down recorded a bogus "failed step-up" lock (lock only
+  after a real step-up fails). Verified: no change on healthy 60/144 Hz or
+  occasional hitches; settles without oscillating on a borderline device.
+* **Intro** delay 0.5 → 0.3 s, duration 4.4 → 4.1 s: at 2.6 s the old intro
+  still showed no structure at all.

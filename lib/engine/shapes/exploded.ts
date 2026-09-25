@@ -41,6 +41,15 @@ const Y = {
 const CENTER = 33;
 export const EXPLODED_HEIGHT = 72.3 * MM;
 
+/** Label anchors for the DOM callouts: part centre height and half width (mm). */
+export const EXPLODED_PARTS = [
+  { name: "keycap", y: Y.cap + 4.5, hx: 9 },
+  { name: "housing", y: Y.top + 2.6, hx: 7.8 },
+  { name: "stem", y: Y.stem + 7, hx: 5 },
+  { name: "spring", y: Y.spring + 8.6, hx: 3.1 },
+  { name: "base", y: Y.bottom + 2.5, hx: 7 },
+].map((p) => ({ name: p.name, y: (p.y - CENTER) * MM, hx: p.hx * MM }));
+
 const LIGHT = (() => {
   const l = [-0.5, 0.9, 0.55];
   const n = Math.hypot(l[0], l[1], l[2]);

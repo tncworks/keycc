@@ -56,13 +56,14 @@ const DEFS = {
     window: { v: 0.55, min: 0.1, max: 1, step: 0.01, doc: "share of the transition each particle travels in" },
     jitter: { v: 0.25, min: 0, max: 0.6, step: 0.01, doc: "randomness mixed into the release order" },
     arc: { v: 0.22, min: 0, max: 1, step: 0.01, unit: "u", doc: "mid-flight lift toward the camera" },
-    smoothing: { v: 0.35, min: 0, max: 1.5, step: 0.01, unit: "s", doc: "critically-damped smoothing of scroll progress" },
+    smoothing: { v: 0.25, min: 0, max: 1.5, step: 0.01, unit: "s", doc: "critically-damped smoothing of scroll progress" },
     maxRate: { v: 1.2, min: 0.2, max: 5, step: 0.05, unit: "1/s", doc: "max morph speed (shapes per second)" },
-    hold: { v: 0.3, min: 0, max: 0.45, step: 0.01, doc: "share of the scroll between sections where a form holds" },
+    holdOut: { v: 0.1, min: 0, max: 0.45, step: 0.01, doc: "scroll share a form holds after its section starts leaving" },
+    holdIn: { v: 0.36, min: 0, max: 0.45, step: 0.01, doc: "scroll share the next form is complete before its section is centred" },
   },
   intro: {
-    duration: { v: 4.4, min: 1, max: 10, step: 0.1, unit: "s", doc: "dust → keyboard assembly time" },
-    delay: { v: 0.5, min: 0, max: 3, step: 0.05, unit: "s", doc: "dust drift before assembly starts" },
+    duration: { v: 4.1, min: 1, max: 10, step: 0.1, unit: "s", doc: "dust → keyboard assembly time" },
+    delay: { v: 0.3, min: 0, max: 3, step: 0.05, unit: "s", doc: "dust drift before assembly starts" },
     window: { v: 0.42, min: 0.1, max: 1, step: 0.01, doc: "share of the intro each particle travels in" },
   },
   keys: {

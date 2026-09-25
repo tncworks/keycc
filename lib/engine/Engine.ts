@@ -22,7 +22,8 @@ import {
   type DataTexture,
   type RawShaderMaterial,
 } from "three";
-import { assemble, type Assembly, type FormInput } from "./assign";
+import type { Assembly } from "./assign";
+import { buildForms, type BuildRequest, type BuildResult } from "./build";
 import { readPalette, type Palette } from "./colors";
 import { FORM_SPECS, formPose, keyboardKeyTops, type BuildContext, type FormName, type Layout } from "./forms";
 import { INIT_FRAG, SIM_FRAG, FULLSCREEN_VERT } from "./glsl/sim";
@@ -31,7 +32,7 @@ import { FullscreenQuad, Post, StatePair, dataTexture, premultipliedOver, rawMat
 import { KEYS, keyUV } from "./layout75";
 import { defaultParams, type Params } from "./params";
 import { rngFor } from "./random";
-import { ANY_KEY_SLOT, HALF_KEY_SLOT, EXPLODED_HEIGHT } from "./shapes/exploded";
+import { ANY_KEY_SLOT, HALF_KEY_SLOT, EXPLODED_HEIGHT, EXPLODED_PARTS } from "./shapes/exploded";
 import { WAVE } from "./shapes/waveform";
 import { rasterizeWordmark, WORDMARK_WIDTH } from "./shapes/wordmark";
 import { LADDER, QualityMonitor, TIERS, TIER_COUNT, pickTier, type TierName } from "./tier";
@@ -52,11 +53,7 @@ export interface EngineOptions {
   signal?: AbortSignal;
 }
 
-interface Assets {
-  names: FormName[];
-  asm: Assembly;
-  buildMs: number;
-}
+type Assets = BuildResult;
 
 const FLOW_RMS = 3.96; // RMS |curl| of one octave, measured by scripts/physics-check.mjs
 const TAU = Math.PI * 2;
@@ -100,25 +97,35 @@ async function loadGlyphs(): Promise<BuildContext["glyphs"]> {
   return rasterizeWordmark(BRAND.wordmark, family);
 }
 
-/** Samples every form and resolves the assignment, yielding between forms. */
+/** Builds every form off the main thread; falls back to building inline. */
 async function buildAssets(forms: FormName[], N: number, seed: number, signal?: AbortSignal): Promise<Assets | null> {
-  const ctx: BuildContext = { glyphs: forms.includes("wordmark") ? await loadGlyphs() : null };
-  const t0 = performance.now();
-  const names: FormName[] = [...forms, "dust"];
-  const inputs: FormInput[] = [];
-  for (const name of names) {
-    if (signal?.aborted) return null;
-    const spec = FORM_SPECS[name];
-    const { buf, rest } = spec.build(N, rngFor(seed, "form", name), ctx);
-    inputs.push({ buf, pose: spec.matchPose, rest });
-    await wait(0);
-  }
+  const glyphs = forms.includes("wordmark") ? await loadGlyphs() : null;
   if (signal?.aborted) return null;
-  const links: [number, number][] = [];
-  for (let i = 1; i < forms.length; i++) links.push([i - 1, i]);
-  links.push([0, names.length - 1]);
-  const asm = assemble(inputs, links, TIER_COUNT, names);
-  return { names, asm, buildMs: performance.now() - t0 };
+  const req: BuildRequest = { forms, N, seed, glyphs };
+  try {
+    return await new Promise<Assets>((resolve, reject) => {
+      const worker = new Worker(new URL("./build.worker.ts", import.meta.url), { type: "module" });
+      const done = () => worker.terminate();
+      worker.onmessage = (e: MessageEvent<Assets>) => {
+        done();
+        resolve(e.data);
+      };
+      worker.onerror = (e) => {
+        done();
+        reject(e);
+      };
+      signal?.addEventListener("abort", () => {
+        done();
+        reject(new DOMException("aborted", "AbortError"));
+      });
+      worker.postMessage(req);
+    });
+  } catch {
+    if (signal?.aborted) return null;
+    // no module workers (very old browsers, strict CSP): build inline
+    await wait(0);
+    return buildForms(req, "main");
+  }
 }
 
 export class Engine {
@@ -129,6 +136,7 @@ export class Engine {
   readonly forms: FormName[];
   stats = { fps: 0, frameMs: 0, substeps: 0, active: 0, dpr: 1, buildMs: 0, level: 0 };
   matchStats: Assembly["stats"] = [];
+  buildWhere: BuildResult["where"] = "main";
 
   private readonly opts: EngineOptions;
   private readonly canvas: HTMLCanvasElement;
@@ -205,6 +213,9 @@ export class Engine {
   private readonly fwd = new Vector3();
   private readonly look = new Vector3();
   private levelApplied = -1;
+  // DOM callouts pinned to the exploded parts
+  private callouts: { el: HTMLElement; y: number; hx: number; w: number; h: number; left: number; top: number }[] = [];
+  private readonly calloutP = new Vector3();
 
   // ------------------------------------------------------------------------
 
@@ -258,10 +269,12 @@ export class Engine {
     this.monitor.enabled = !opts.shot;
     this.palette = readPalette();
     this.reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    this.matchStats = assets.asm.stats;
+    this.matchStats = assets.stats;
     this.stats.buildMs = assets.buildMs;
+    this.buildWhere = assets.where;
     const seed = opts.seed ?? 7;
-    const { asm, names } = assets;
+    const asm = assets;
+    const names = assets.names;
     this.dustIndex = names.length - 1;
 
     const S = this.size;
@@ -533,7 +546,59 @@ export class Engine {
     this.measureAnchors();
   }
 
+  private measureCallouts() {
+    this.callouts = [];
+    for (const el of document.querySelectorAll<HTMLElement>("[data-callout]")) {
+      const part = EXPLODED_PARTS.find((p) => p.name === el.dataset.callout);
+      const text = el.firstElementChild as HTMLElement | null;
+      if (part) this.callouts.push({ el, y: part.y, hx: part.hx, w: text?.offsetWidth ?? 0, h: el.offsetHeight, left: 0, top: 0 });
+    }
+  }
+
+  /**
+   * Project each exploded part and pin its label on a common column to the
+   * left of the model, with a leader line running to the part's near edge
+   * (the classic technical-drawing layout). Labels follow the model's sway.
+   */
+  private updateCallouts() {
+    if (!this.callouts.length) return;
+    const idx = this.forms.indexOf("exploded");
+    const near = idx < 0 ? 0 : 1 - Math.min(Math.abs(this.m - idx) / 0.22, 1);
+    const show = this.layout.wide > 0.5 && near > 0.001;
+    if (!show) {
+      for (const c of this.callouts) if (c.el.style.opacity !== "0") c.el.style.opacity = "0";
+      return;
+    }
+    const pose = Math.floor(this.m) === idx ? this.xfA : this.xfB;
+    const W = this.opts.host.clientWidth, H = this.opts.host.clientHeight;
+    const p = this.calloutP;
+    let col = Infinity;
+    for (const c of this.callouts) {
+      let minX = Infinity, sumY = 0;
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          p.set(sx * c.hx, c.y, sz * c.hx).applyMatrix4(pose).project(this.camera);
+          const x = (p.x * 0.5 + 0.5) * W;
+          if (x < minX) minX = x;
+          sumY += (-p.y * 0.5 + 0.5) * H;
+        }
+      }
+      c.left = minX;
+      c.top = sumY / 4;
+      col = Math.min(col, minX);
+    }
+    col -= 48;
+    const alpha = (near * near * (3 - 2 * near)).toFixed(3);
+    for (const c of this.callouts) {
+      const lead = Math.max(c.left - 12 - col, 8);
+      c.el.style.transform = `translate3d(${(col - c.w - 12).toFixed(1)}px, ${(c.top - c.h / 2).toFixed(1)}px, 0)`;
+      c.el.style.setProperty("--lead", `${lead.toFixed(1)}px`);
+      c.el.style.opacity = alpha;
+    }
+  }
+
   private measureAnchors() {
+    this.measureCallouts();
     if (!this.opts.scrollDriven) return;
     const els = Array.from(document.querySelectorAll<HTMLElement>("[data-form]"));
     const vh = window.innerHeight;
@@ -653,14 +718,15 @@ export class Engine {
     else if (this.opts.scrollDriven && this.anchors.length) {
       const y = window.scrollY;
       const A = this.anchors;
-      const hold = this.params.morph.hold;
+      const { holdOut, holdIn } = this.params.morph;
       if (y <= A[0].y) target = A[0].form;
       else if (y >= A[A.length - 1].y) target = A[A.length - 1].form;
       else {
         for (let i = 0; i < A.length - 1; i++) {
           if (y >= A[i].y && y <= A[i + 1].y) {
             const span = A[i + 1].y - A[i].y;
-            const t = smoothstep(A[i].y + span * hold, A[i + 1].y - span * hold, y);
+            // leave early, arrive early: the next form is settled before its copy is
+            const t = smoothstep(A[i].y + span * holdOut, A[i + 1].y - span * holdIn, y);
             target = A[i].form + (A[i + 1].form - A[i].form) * t;
             break;
           }
@@ -874,6 +940,7 @@ export class Engine {
     this.post.bloom(r, this.quad, P.bloom.threshold, P.bloom.knee, P.bloom.radius);
     (this.post.composite.uniforms.uGrade.value as Vector4).set(P.grade.vignette, P.grade.dither, P.bloom.strength, P.render.exposure);
     this.quad.render(r, this.post.composite, null);
+    this.updateCallouts();
   }
 
   private initState() {
@@ -969,9 +1036,13 @@ export class Engine {
         this.monitor.enabled = false;
       },
       probe: (idx: number[]) => this.probe(idx),
+      key: (code: string) => {
+        const i = KEYS.findIndex((k) => k.code === code);
+        return i >= 0 ? this.keyPress[i] : -1;
+      },
       measure: () => this.measureAnchors(),
       running: () => this.running,
-      stats: () => ({ ...this.stats, tier: this.tier, N: this.N, m: this.m, match: this.matchStats }),
+      stats: () => ({ ...this.stats, tier: this.tier, N: this.N, m: this.m, match: this.matchStats, built: this.buildWhere }),
     };
   }
 }

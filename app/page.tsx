@@ -38,6 +38,15 @@ const SPECS = [
   { value: "8°", label: "Typing angle" },
 ];
 
+/** The five parts of the exploded switch; labels are pinned to the 3-D model by the engine. */
+const PARTS = [
+  { id: "keycap", name: "Keycap", note: "PBT, double-shot" },
+  { id: "housing", name: "Top housing", note: "Nylon, hand-lubed" },
+  { id: "stem", name: "Stem", note: "POM, long pole" },
+  { id: "spring", name: "Spring", note: "62 g, two-stage" },
+  { id: "base", name: "Base", note: "Polycarbonate" },
+];
+
 const LINEUP = [
   {
     name: "Mote 65",
@@ -170,6 +179,13 @@ export default function Home() {
               <p data-reveal="" className="mt-10 font-mono text-label uppercase text-faint [--d:320ms]">
                 Press any key — the stem answers.
               </p>
+              <ul className="sr-only">
+                {PARTS.map((p) => (
+                  <li key={p.id}>
+                    {p.name}: {p.note}
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </section>
@@ -279,6 +295,20 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      {/* part labels for the exploded switch: positioned every frame by the engine */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-10 hidden md:block">
+        {PARTS.map((p) => (
+          <div key={p.id} data-callout={p.id} className="absolute top-0 left-0 flex items-center gap-3 opacity-0 will-change-transform" style={{ transform: "translate3d(-9999px,0,0)" }}>
+            <div className="text-right">
+              <p className="font-mono text-label uppercase text-ink/85">{p.name}</p>
+              <p className="mt-1.5 text-[0.75rem] leading-none text-muted">{p.note}</p>
+            </div>
+            <span className="h-px w-(--lead,3rem) bg-gradient-to-r from-ink/15 to-ink/50" />
+            <span className="-ml-3 size-[3px] rounded-full bg-ink/70" />
+          </div>
+        ))}
+      </div>
 
       {/* ------------------------------------------------------------ footer */}
       <footer className="relative border-t border-line bg-ground/70 backdrop-blur-md">

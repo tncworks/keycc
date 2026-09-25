@@ -51,6 +51,7 @@ export class QualityMonitor {
   private refresh = 1 / 60;
   private lastChange = 0;
   private locked = new Set<number>();
+  private lastUp = false;
   private clock = 0;
   enabled = true;
 
@@ -64,18 +65,23 @@ export class QualityMonitor {
     this.samples.length = 0;
     const p10 = sorted[Math.floor(sorted.length * 0.1)];
     const median = sorted[sorted.length >> 1];
-    // refresh interval estimate: fastest sustained frames, snapped to common rates
-    const est = Math.min(Math.max(p10, 1 / 240), 1 / 30);
+    // refresh interval: the fastest sustained frames, but never slower than
+    // 60 Hz — otherwise a device that is *always* slow would be mistaken for
+    // a 30 Hz display and never adapt
+    const est = Math.min(Math.max(p10, 1 / 240), 1 / 60);
     this.refresh = this.refresh * 0.7 + est * 0.3;
     const since = this.clock - this.lastChange;
     if (median > this.refresh * 1.35 && this.level < LADDER.length - 1 && since > 2) {
-      if (since < 6) this.locked.add(this.level - 1); // just stepped up and it failed
+      // a step up that could not hold: never try that level again
+      if (this.lastUp && since < 6) this.locked.add(this.level);
       this.level++;
+      this.lastUp = false;
       this.lastChange = this.clock;
       return true;
     }
     if (median < this.refresh * 1.08 && this.level > 0 && since > 8 && !this.locked.has(this.level - 1)) {
       this.level--;
+      this.lastUp = true;
       this.lastChange = this.clock;
       return true;
     }

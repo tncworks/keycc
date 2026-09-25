@@ -24,10 +24,10 @@ export function buildDust(N: number, rng: Rng, extent = { x: 5.2, y: 3.0, z: 4.2
     const x = u * k * extent.x;
     const y = v * k * extent.y;
     const z = w * k * extent.z - 0.6;
-    // most motes are nearly invisible haze; roughly one in six catches the light
+    // most motes are nearly invisible haze; about one in ten catches the light
     const b = rng();
-    const lit = rng() < 0.17;
-    const shade = lit ? 0.16 + 0.5 * b * b : 0.025 + 0.05 * b;
+    const lit = rng() < 0.1;
+    const shade = lit ? 0.14 + 0.42 * b * b : 0.02 + 0.04 * b;
     buf.push(x, y, z, 0, 0, 0, packAttr(shade, -1, false), 0, (got + 0.5) / N);
     got++;
   }
