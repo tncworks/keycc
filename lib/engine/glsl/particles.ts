@@ -21,12 +21,12 @@ uniform sampler2D uPosPrev;
 uniform sampler2D uPosCurr;
 uniform sampler2D uVel;
 uniform sampler2D uSeed;
-uniform sampler2D uKeyShape;
 uniform float uAlpha;
 uniform float uTime;
 
 uniform vec4 uKeys[${KEY_SLOTS / 4}];
-uniform vec4 uKeyCfg;     // axis xyz, travel * keyboard weight
+uniform vec4 uKeyCfgA;    // form A: key axis xyz, travel (world)
+uniform vec4 uKeyCfgB;    // form B
 uniform float uKeyGlow;
 
 uniform vec4 uRipA[${MAX_RIPPLES}];  // origin xyz, start time
@@ -55,31 +55,38 @@ void main() {
   vec4 vel = texture(uVel, position);
   vec4 seed = texture(uSeed, position);
 
+  // unpack accent / key slot / form slot (see sim.ts)
+  float slotB = floor(vel.w / 512.0);
+  float rem = vel.w - 512.0 * slotB;
+  float kidf = floor(rem / 2.0);
+  float accent = rem - 2.0 * kidf;
+  int kid = int(kidf) - 1;
+
   // key depression (render-time: a keycap must not take a second to sink)
-  if (uKeyCfg.w > 0.0) {
-    float attr = texture(uKeyShape, position).w;
-    int kid = int(floor(attr / 4.0)) - 1;
-    if (kid >= 0) {
-      float q = uKeys[kid / 4][kid - (kid / 4) * 4];
-      pos -= uKeyCfg.xyz * (uKeyCfg.w * q);
-      bright *= 1.0 + uKeyGlow * q * step(0.001, uKeyCfg.w);
-    }
+  vec4 kc = slotB > 0.5 ? uKeyCfgB : uKeyCfgA;
+  if (kid >= 0 && kc.w > 0.0) {
+    float q = uKeys[kid / 4][kid - (kid / 4) * 4];
+    pos -= kc.xyz * (kc.w * q);
+    bright *= 1.0 + uKeyGlow * q;
   }
 
   // analytic expanding rings (Ricker wavelet, 2-D energy spreading)
   float sheen = 0.0;
+  // B.xyz = axis scaled by the form's size, so rings keep their proportions
   for (int i = 0; i < ${MAX_RIPPLES}; i++) {
     vec4 A = uRipA[i];
     vec4 B = uRipB[i];
     float age = uTime - A.w;
-    if (B.w <= 0.0 || age < 0.0 || age > uRipple.z * 5.0) continue;
+    float sc = length(B.xyz);
+    if (B.w <= 0.0 || sc < 1e-4 || age < 0.0 || age > uRipple.z * 5.0) continue;
+    vec3 ax = B.xyz / sc;
     vec3 rel = pos - A.xyz;
-    float along = dot(rel, B.xyz);
-    float r = length(rel - along * B.xyz);
+    float along = dot(rel, ax);
+    float r = length(rel - along * ax) / sc;
     float u = (r - uRipple.x * age) / uRipple.y;
     float w = (1.0 - u * u) * exp(-0.5 * u * u);
     float h = B.w * exp(-age / uRipple.z) * w * inversesqrt(1.0 + r / uRipple.w);
-    pos += B.xyz * (h * uRippleDisp);
+    pos += ax * (h * sc * uRippleDisp);
     sheen += h;
   }
 
@@ -116,11 +123,11 @@ void main() {
   }
   s = min(s, uSize.w);
 
-  vec3 col = mix(uColor, uAccent, clamp(vel.w, 0.0, 1.0));
+  vec3 col = mix(uColor, uAccent, clamp(accent, 0.0, 1.0));
   col *= bright * lift * (1.0 + uSheen * max(sheen, 0.0));
   vColor = vec4(col, clamp(alpha, 0.0, 1.0));
   gl_PointSize = s;
-  if (alpha < 0.002) {
+  if (!(alpha >= 0.002) || !(s < 1e4)) { // also rejects NaN
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     gl_PointSize = 0.0;
   }

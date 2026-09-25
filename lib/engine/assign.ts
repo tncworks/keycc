@@ -24,7 +24,7 @@ export interface Assembly {
   /** per form, in particle order */
   pos: Float32Array[];
   nrm: Float32Array[];
-  /** mean view-space travel per link, for the doc: [matched, random] */
+  /** mean travel per link in normalised view space (unit RMS radius): matched vs random */
   stats: { link: string; matched: number; random: number }[];
 }
 
@@ -46,7 +46,38 @@ function tierSplit(rank: Float32Array, tiers: number): Int32Array[] {
   return out;
 }
 
-function posed(form: FormInput, idx: Int32Array): Float32Array {
+interface Norm {
+  cx: number;
+  cy: number;
+  cz: number;
+  inv: number;
+}
+
+/**
+ * Forms live at very different scales (a 330 mm keyboard, an 86 mm switch,
+ * a 5 u horizon). Matching compares them in a normalised view space:
+ * centred on their centroid and scaled to unit RMS radius.
+ */
+function normFor(form: FormInput): Norm {
+  const src = form.rest ?? form.buf.pos;
+  const stride = form.rest ? 3 : 4;
+  const m = form.pose;
+  const n = src.length / stride;
+  let sx = 0, sy = 0, sz = 0, s2 = 0;
+  for (let i = 0; i < n; i++) {
+    const x = src[i * stride], y = src[i * stride + 1], z = src[i * stride + 2];
+    const X = m[0] * x + m[1] * y + m[2] * z, Y = m[3] * x + m[4] * y + m[5] * z, Z = (m[6] * x + m[7] * y + m[8] * z) * DEPTH_WEIGHT;
+    sx += X;
+    sy += Y;
+    sz += Z;
+    s2 += X * X + Y * Y + Z * Z;
+  }
+  const cx = sx / n, cy = sy / n, cz = sz / n;
+  const rms = Math.sqrt(Math.max(s2 / n - cx * cx - cy * cy - cz * cz, 1e-12));
+  return { cx, cy, cz, inv: 1 / rms };
+}
+
+function posed(form: FormInput, idx: Int32Array, nm: Norm): Float32Array {
   const src = form.rest ?? form.buf.pos;
   const stride = form.rest ? 3 : 4;
   const m = form.pose;
@@ -54,9 +85,9 @@ function posed(form: FormInput, idx: Int32Array): Float32Array {
   for (let j = 0; j < idx.length; j++) {
     const i = idx[j] * stride;
     const x = src[i], y = src[i + 1], z = src[i + 2];
-    out[j * 3] = m[0] * x + m[1] * y + m[2] * z + m[9];
-    out[j * 3 + 1] = m[3] * x + m[4] * y + m[5] * z + m[10];
-    out[j * 3 + 2] = (m[6] * x + m[7] * y + m[8] * z + m[11]) * DEPTH_WEIGHT;
+    out[j * 3] = (m[0] * x + m[1] * y + m[2] * z - nm.cx) * nm.inv;
+    out[j * 3 + 1] = (m[3] * x + m[4] * y + m[5] * z - nm.cy) * nm.inv;
+    out[j * 3 + 2] = ((m[6] * x + m[7] * y + m[8] * z) * DEPTH_WEIGHT - nm.cz) * nm.inv;
   }
   return out;
 }
@@ -166,6 +197,7 @@ export function assemble(forms: FormInput[], links: [number, number][], tiers: n
   const per = N / tiers;
   if (!Number.isInteger(per)) throw new Error("N must be divisible by tiers");
   const split = forms.map((f) => tierSplit(f.buf.rank, tiers));
+  const norms = forms.map(normFor);
   const assign: (Int32Array | null)[] = forms.map(() => null);
   const stats: Assembly["stats"] = [];
 
@@ -182,8 +214,8 @@ export function assemble(forms: FormInput[], links: [number, number][], tiers: n
     for (let t = 0; t < tiers; t++) {
       const pIdx = src.subarray(t * per, (t + 1) * per);
       const qIdx = split[to][t];
-      const Pp = posed(forms[from], pIdx);
-      const Qp = posed(forms[to], qIdx);
+      const Pp = posed(forms[from], pIdx, norms[from]);
+      const Qp = posed(forms[to], qIdx, norms[to]);
       const match = bisectMatch(Pp, Qp);
       if (t === 0) {
         matched = meanDist(Pp, Qp, match);

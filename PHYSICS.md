@@ -614,9 +614,9 @@ generated from `lib/engine/params.ts` (`npm run params:doc`).
 | ripple | `decay` | 1.2 | 0.2 – 4 | s | ring lifetime T |
 | ripple | `spread` | 0.35 | 0.05 – 2 | u | r₀ of the 1/√(1+r/r₀) energy spreading |
 | ripple | `sheen` | 12 | 0 – 40 |  | brightness added per unit of ripple height |
-| render | `size` | 0.0095 | 0.002 – 0.04 | u | sprite diameter at the focal plane |
-| render | `sizeJitter` | 0.35 | 0 – 0.8 |  | ± sprite size variation |
-| render | `alpha` | 0.8 | 0.05 – 1 |  | base sprite opacity |
+| render | `size` | 0.0082 | 0.002 – 0.04 | u | sprite diameter at the focal plane |
+| render | `sizeJitter` | 0.25 | 0 – 0.8 |  | ± sprite size variation |
+| render | `alpha` | 0.72 | 0.05 – 1 |  | base sprite opacity |
 | render | `aperture` | 0.05 | 0 – 0.25 | u | lens aperture (depth of field) |
 | render | `focusOffset` | 0 | -3 – 3 | u | focus distance offset from the subject |
 | render | `minPx` | 1.6 | 0.5 – 4 | px | smallest sprite; smaller ones fade instead |

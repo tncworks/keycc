@@ -120,6 +120,8 @@ void main() {
   vec3 pa = (uXfA * vec4(fa.xyz, 1.0)).xyz;
   float bA = decodeShade(ta.w) * fa.w * facing(na.xyz, uXfA, pa);
   float accent = decodeAccent(ta.w);
+  float key = floor(ta.w / 4.0) - 1.0;
+  float slot = 0.0;
   float stiff = uShapeA.x;
   float wind = uShapeA.y;
   vec3 target = pa;
@@ -137,6 +139,10 @@ void main() {
     target = mix(pa, pb, eMove);
     bright = mix(bA, bB, e) * mix(1.0, abs(1.0 - 2.0 * e), reduced);
     accent = mix(accent, decodeAccent(tb.w), e);
+    if (e >= 0.5) {
+      key = floor(tb.w / 4.0) - 1.0;
+      slot = 1.0;
+    }
     stiff = mix(uShapeA.x, uShapeB.x, e);
     wind = mix(uShapeA.y, uShapeB.y, e);
     transit = 4.0 * e * (1.0 - e);
@@ -150,6 +156,7 @@ void main() {
     target = mix(pd, target, eiMove);
     bright = mix(decodeShade(td.w), bright, ei) * mix(1.0, abs(1.0 - 2.0 * ei), reduced);
     accent *= ei;
+    if (ei < 0.5) key = -1.0;
     stiff = mix(uShapeD.x, stiff, ei);
     wind = mix(uShapeD.y, wind, ei);
     transit = max(transit, 4.0 * ei * (1.0 - ei));
@@ -209,9 +216,14 @@ void main() {
     x = target;
     v = vec3(0.0);
   }
+  // the w channels feed colour: a NaN there would be smeared by the bloom
+  if (!(abs(bright) < 1e4)) bright = 0.0;
+  if (!(abs(accent) < 1e4)) accent = 0.0;
 
   oPos = vec4(x, bright);
-  oVel = vec4(v, accent);
+  // w packs accent (0..1), the key slot this particle answers to, and
+  // whether it currently belongs to form A or B (for the key axis)
+  oVel = vec4(v, clamp(accent, 0.0, 1.0) + 2.0 * (key + 1.0) + 512.0 * slot);
 }
 `;
 

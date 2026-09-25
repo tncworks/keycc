@@ -17,7 +17,7 @@ function stepResponse({ f0, zeta, h, cAir = 0, T = 6, m = 1 }) {
   let x = 0, v = 0;
   const target = 1;
   let peak = 0, tPeak = 0, tSettle = 0;
-  for (let i = 0, t = 0; t < T; i++, t += h) {
+  for (let t = 0; t < T; t += h) {
     const F = k * (target - x) - cS * v + cAir * (0 - v);
     v += (F / m) * h;
     x += v * h;

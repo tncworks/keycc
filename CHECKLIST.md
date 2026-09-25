@@ -18,44 +18,44 @@ Each item names how it is verified.
 - [x] Failure modes and guards
 - [x] Table of every tunable parameter with defaults and ranges (generated from params.ts)
 - [x] Engine prototyped alone (one shape + cursor) and feel tuned before the site
-- [~] git init, commit after each phase (Phase 1 committed)
+- [~] git init, commit after each phase (Phase 1, Phase 2 committed)
 
 ## Phase 2 — the site
 
 Stack
-- [ ] Latest Next.js (App Router) + TypeScript strict
-- [ ] Tailwind CSS v4 CSS-first: palette, fonts, type scale as `@theme` tokens in globals.css; no tailwind.config.js
-- [ ] Shaders read particle colours from the same CSS variables at startup
-- [ ] Three.js with custom GLSL (GLSL in TS template strings, no custom loaders)
-- [ ] Tailwind for DOM; particles in ONE fixed full-screen canvas behind content
-- [ ] All WebGL client-only: 'use client' + next/dynamic({ ssr:false }) from a client component
-- [ ] Idempotent init/teardown (Strict Mode), every GPU resource disposed, no leaked contexts on HMR
-- [ ] Fonts via next/font
-- [ ] Everything procedural, no image assets; all randomness seeded
+- [x] Latest Next.js (App Router) + TypeScript strict
+- [x] Tailwind CSS v4 CSS-first: palette, fonts, type scale as `@theme` tokens in globals.css; no tailwind.config.js
+- [x] Shaders read particle colours from the same CSS variables at startup
+- [x] Three.js with custom GLSL (GLSL in TS template strings, no custom loaders)
+- [x] Tailwind for DOM; particles in ONE fixed full-screen canvas behind content
+- [x] All WebGL client-only: 'use client' + next/dynamic({ ssr:false }) from a client component
+- [~] Idempotent init/teardown (Strict Mode), every GPU resource disposed, no leaked contexts on HMR — implemented, verification pending
+- [x] Fonts via next/font
+- [x] Everything procedural, no image assets; all randomness seeded
 
 Sections
-- [ ] Hero: dust drifts in and assembles into a 3D 75% keyboard from a layout table (1u = 19.05 mm, tops narrower than bases)
-- [ ] Hero: slow parallax; ambient motion never fully stops
-- [ ] Real typing: physical key depresses matching particle keycap + ripple through the field
-- [ ] Typing does not break keyboard scrolling (Space / PgDn / arrows / Home / End)
-- [ ] Subtle "type anything" hint
-- [ ] Scroll story, 3–4 sections, each morphs to a new form (exploded keycap+switch, waveform reacting to typing, wordmark)
-- [ ] Morphs reverse cleanly when scrolling up
-- [ ] Optional Web Audio key sounds, muted by default
-- [ ] Product lineup, CTA, footer with tasteful placeholder copy
+- [x] Hero: dust drifts in and assembles into a 3D 75% keyboard from a layout table (1u = 19.05 mm, tops narrower than bases)
+- [~] Hero: slow parallax; ambient motion never fully stops — implemented, verification pending
+- [~] Real typing: physical key depresses matching particle keycap + ripple through the field — implemented, verification pending
+- [~] Typing does not break keyboard scrolling (Space / PgDn / arrows / Home / End) — implemented, verification pending
+- [~] Subtle "type anything" hint — implemented, verification pending
+- [x] Scroll story, 3–4 sections, each morphs to a new form (exploded keycap+switch, waveform reacting to typing, wordmark)
+- [~] Morphs reverse cleanly when scrolling up — implemented, verification pending
+- [~] Optional Web Audio key sounds, muted by default — implemented, verification pending
+- [x] Product lineup, CTA, footer with tasteful placeholder copy
 
 Design
-- [ ] Near-black background, warm off-white particles, at most one muted accent
-- [ ] Large confident type on a clear scale, generous whitespace, small tracked uppercase labels
-- [ ] Motion slow and eased, never bouncy or frantic
+- [x] Near-black background, warm off-white particles, at most one muted accent
+- [~] Large confident type on a clear scale, generous whitespace, small tracked uppercase labels — implemented, verification pending
+- [~] Motion slow and eased, never bouncy or frantic — implemented, verification pending
 
 Performance
-- [ ] Target 60 fps on a mid-range laptop, adaptive particle count
-- [ ] Pause when tab hidden or canvas offscreen
-- [ ] Touch acts as the cursor on mobile
-- [ ] prefers-reduced-motion respected
-- [ ] Responsive down to 375 px
-- [ ] `?debug`: fps meter, particle count, lil-gui for every PHYSICS.md parameter, hooks to freeze time and set scroll/morph progress
+- [~] Target 60 fps on a mid-range laptop, adaptive particle count — implemented, verification pending
+- [~] Pause when tab hidden or canvas offscreen — implemented, verification pending
+- [~] Touch acts as the cursor on mobile — implemented, verification pending
+- [~] prefers-reduced-motion respected — implemented, verification pending
+- [~] Responsive down to 375 px — implemented, verification pending
+- [~] `?debug`: fps meter, particle count, lil-gui for every PHYSICS.md parameter, hooks to freeze time and set scroll/morph progress — implemented, verification pending
 
 ## Phase 3 — verify and polish
 
@@ -66,6 +66,6 @@ Performance
 - [ ] Polish pass 1 (physics feel, transition timing, typography & spacing, colour, mobile) — logged
 - [ ] Polish pass 2 — logged
 - [ ] Polish pass 3 — logged
-- [ ] `npm run build` clean
+- [~] `npm run build` clean (clean at Phase 2; re-verify at the end)
 - [ ] Zero console errors
 - [ ] Screenshots genuinely look premium

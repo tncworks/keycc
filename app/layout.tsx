@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Instrument_Sans } from "next/font/google";
 import { BRAND } from "@/lib/brand";
+import "lenis/dist/lenis.css";
 import "./globals.css";
 
 const sans = Instrument_Sans({

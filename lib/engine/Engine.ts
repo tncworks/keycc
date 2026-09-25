@@ -22,17 +22,22 @@ import {
   type DataTexture,
   type RawShaderMaterial,
 } from "three";
-import { assemble, type FormInput } from "./assign";
+import { assemble, type Assembly, type FormInput } from "./assign";
 import { readPalette, type Palette } from "./colors";
-import { FORM_SPECS, KIND, formPose, keyboardKeyTops, type FormName, type Layout } from "./forms";
+import { FORM_SPECS, formPose, keyboardKeyTops, type BuildContext, type FormName, type Layout } from "./forms";
 import { INIT_FRAG, SIM_FRAG, FULLSCREEN_VERT } from "./glsl/sim";
 import { KEY_SLOTS, MAX_RIPPLES, PARTICLE_FRAG, PARTICLE_VERT } from "./glsl/particles";
 import { FullscreenQuad, Post, StatePair, dataTexture, premultipliedOver, rawMaterial } from "./gpu";
-import { KEYS } from "./layout75";
+import { KEYS, keyUV } from "./layout75";
 import { defaultParams, type Params } from "./params";
 import { rngFor } from "./random";
+import { ANY_KEY_SLOT, HALF_KEY_SLOT, EXPLODED_HEIGHT } from "./shapes/exploded";
+import { WAVE } from "./shapes/waveform";
+import { rasterizeWordmark, WORDMARK_WIDTH } from "./shapes/wordmark";
 import { LADDER, QualityMonitor, TIERS, TIER_COUNT, pickTier, type TierName } from "./tier";
+import { WaveHistory } from "./wave";
 import { keyChannel, releaseChannel, installKeyboard, stationStore, type KeyEvt } from "../bus";
+import { BRAND } from "../brand";
 
 export interface EngineOptions {
   host: HTMLElement;
@@ -45,12 +50,18 @@ export interface EngineOptions {
   /** DOM anchors: elements with data-form="<name>" drive the morph from scroll */
   scrollDriven?: boolean;
   signal?: AbortSignal;
-  onReady?: (e: Engine) => void;
+}
+
+interface Assets {
+  names: FormName[];
+  asm: Assembly;
+  buildMs: number;
 }
 
 const FLOW_RMS = 3.96; // RMS |curl| of one octave, measured by scripts/physics-check.mjs
 const TAU = Math.PI * 2;
 const FOV = 28;
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function smoothstep(a: number, b: number, x: number) {
   const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
@@ -78,6 +89,38 @@ function smoothDamp(cur: number, target: number, vel: { v: number }, smoothTime:
   return out;
 }
 
+async function loadGlyphs(): Promise<BuildContext["glyphs"]> {
+  await Promise.race([document.fonts.ready, wait(2000)]);
+  const family = getComputedStyle(document.documentElement).getPropertyValue("--font-instrument-sans").trim() || "sans-serif";
+  try {
+    await Promise.race([document.fonts.load(`560 320px ${family}`), wait(1500)]);
+  } catch {
+    /* fall back to whatever is available */
+  }
+  return rasterizeWordmark(BRAND.wordmark, family);
+}
+
+/** Samples every form and resolves the assignment, yielding between forms. */
+async function buildAssets(forms: FormName[], N: number, seed: number, signal?: AbortSignal): Promise<Assets | null> {
+  const ctx: BuildContext = { glyphs: forms.includes("wordmark") ? await loadGlyphs() : null };
+  const t0 = performance.now();
+  const names: FormName[] = [...forms, "dust"];
+  const inputs: FormInput[] = [];
+  for (const name of names) {
+    if (signal?.aborted) return null;
+    const spec = FORM_SPECS[name];
+    const { buf, rest } = spec.build(N, rngFor(seed, "form", name), ctx);
+    inputs.push({ buf, pose: spec.matchPose, rest });
+    await wait(0);
+  }
+  if (signal?.aborted) return null;
+  const links: [number, number][] = [];
+  for (let i = 1; i < forms.length; i++) links.push([i - 1, i]);
+  links.push([0, names.length - 1]);
+  const asm = assemble(inputs, links, TIER_COUNT, names);
+  return { names, asm, buildMs: performance.now() - t0 };
+}
+
 export class Engine {
   readonly params: Params = defaultParams();
   readonly tier: TierName;
@@ -85,12 +128,12 @@ export class Engine {
   readonly size: number;
   readonly forms: FormName[];
   stats = { fps: 0, frameMs: 0, substeps: 0, active: 0, dpr: 1, buildMs: 0, level: 0 };
-  matchStats: { link: string; matched: number; random: number }[] = [];
+  matchStats: Assembly["stats"] = [];
 
   private readonly opts: EngineOptions;
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: WebGLRenderer;
-  private readonly camera = new PerspectiveCamera(FOV, 1, 0.1, 80);
+  private readonly camera = new PerspectiveCamera(FOV, 1, 0.1, 120);
   private readonly quad = new FullscreenQuad();
   private readonly state: StatePair;
   private readonly post = new Post();
@@ -105,6 +148,7 @@ export class Engine {
   private readonly formNrm: DataTexture[] = [];
   private readonly dustIndex: number;
   private readonly monitor = new QualityMonitor();
+  private readonly wave: WaveHistory | null;
   private palette: Palette;
   private readonly keyTops = keyboardKeyTops();
 
@@ -137,7 +181,6 @@ export class Engine {
   private ndc = new Vector2();
   private cursorActive = false;
   private cursorPresence = 0;
-  private lastMove = 0;
   private cursorWorld = new Vector3();
   private cursorPrev = new Vector3();
   private cursorVel = new Vector3();
@@ -148,7 +191,7 @@ export class Engine {
   // keys
   private keyPress = new Float32Array(KEY_SLOTS);
   private keyDown = new Uint8Array(KEY_SLOTS);
-  private keyAge = new Float32Array(KEY_SLOTS);
+  private keyAge = new Float32Array(KEY_SLOTS).fill(10);
   private keyAuto = new Float32Array(KEY_SLOTS); // scripted presses release after this age
   private ripA = new Float32Array(MAX_RIPPLES * 4);
   private ripB = new Float32Array(MAX_RIPPLES * 4);
@@ -169,8 +212,13 @@ export class Engine {
     const canvas = document.createElement("canvas");
     canvas.setAttribute("aria-hidden", "true");
     canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;";
-    opts.host.appendChild(canvas);
     let renderer: WebGLRenderer | null = null;
+    const bail = () => {
+      renderer?.dispose();
+      renderer?.forceContextLoss();
+      canvas.remove();
+      return null;
+    };
     try {
       renderer = new WebGLRenderer({
         canvas,
@@ -182,62 +230,39 @@ export class Engine {
         powerPreference: "high-performance",
       });
     } catch {
-      canvas.remove();
-      return null;
+      return bail();
     }
-    if (!renderer.extensions.has("EXT_color_buffer_float")) {
-      renderer.dispose();
-      renderer.forceContextLoss();
-      canvas.remove();
-      return null;
-    }
-    // let the browser paint the DOM before the (synchronous) shape build
-    await new Promise((r) => setTimeout(r, 0));
-    if (opts.signal?.aborted) {
-      renderer.dispose();
-      renderer.forceContextLoss();
-      canvas.remove();
-      return null;
-    }
-    const engine = new Engine(opts, canvas, renderer);
-    if (opts.signal?.aborted) {
-      engine.dispose();
-      return null;
-    }
+    if (!renderer.extensions.has("EXT_color_buffer_float")) return bail();
+    const gl = renderer.getContext() as WebGL2RenderingContext;
+    const tier = pickTier(gl, opts.tier);
+    const size = TIERS[tier].size;
+    // let the browser paint the DOM first; shapes are built in yielding chunks
+    await wait(0);
+    if (opts.signal?.aborted) return bail();
+    const assets = await buildAssets(opts.forms, size * size, opts.seed ?? 7, opts.signal);
+    if (!assets || opts.signal?.aborted) return bail();
+    opts.host.appendChild(canvas);
+    const engine = new Engine(opts, canvas, renderer, tier, assets);
     engine.start();
-    opts.onReady?.(engine);
     return engine;
   }
 
-  private constructor(opts: EngineOptions, canvas: HTMLCanvasElement, renderer: WebGLRenderer) {
+  private constructor(opts: EngineOptions, canvas: HTMLCanvasElement, renderer: WebGLRenderer, tier: TierName, assets: Assets) {
     this.opts = opts;
     this.canvas = canvas;
     this.renderer = renderer;
     this.forms = opts.forms;
-    const seed = opts.seed ?? 7;
-    const gl = renderer.getContext() as WebGL2RenderingContext;
-    this.tier = pickTier(gl, opts.tier);
-    this.size = TIERS[this.tier].size;
+    this.tier = tier;
+    this.size = TIERS[tier].size;
     this.N = this.size * this.size;
     this.monitor.enabled = !opts.shot;
     this.palette = readPalette();
     this.reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // ---- shapes ----------------------------------------------------------
-    const t0 = performance.now();
-    const names: FormName[] = [...opts.forms, "dust"];
-    const inputs: FormInput[] = names.map((name) => {
-      const spec = FORM_SPECS[name];
-      const { buf, rest } = spec.build(this.N, rngFor(seed, "form", name));
-      return { buf, pose: spec.matchPose, rest };
-    });
-    const links: [number, number][] = [];
-    for (let i = 1; i < opts.forms.length; i++) links.push([i - 1, i]);
+    this.matchStats = assets.asm.stats;
+    this.stats.buildMs = assets.buildMs;
+    const seed = opts.seed ?? 7;
+    const { asm, names } = assets;
     this.dustIndex = names.length - 1;
-    links.push([0, this.dustIndex]);
-    const asm = assemble(inputs, links, TIER_COUNT, names);
-    this.matchStats = asm.stats;
-    this.stats.buildMs = performance.now() - t0;
 
     const S = this.size;
     for (let i = 0; i < names.length; i++) {
@@ -253,9 +278,9 @@ export class Engine {
     const seedTex = dataTexture(seeds, S, S);
     this.textures.push(seedTex);
 
-    // procedural-form helpers (filled by later phases; valid placeholders now)
-    const waveTex = dataTexture(new Float32Array(4 * 4), 2, 2);
-    this.textures.push(waveTex);
+    this.wave = opts.forms.includes("waveform") ? new WaveHistory(rngFor(seed, "wave")) : null;
+    const waveTex = this.wave?.tex ?? dataTexture(new Float32Array(16), 2, 2);
+    if (!this.wave) this.textures.push(waveTex as DataTexture);
 
     // ---- simulation ------------------------------------------------------
     this.state = new StatePair(S, S);
@@ -297,9 +322,9 @@ export class Engine {
       uCamPos: { value: new Vector3() },
       uBackface: { value: 0.8 },
       uWaveTex: { value: waveTex },
-      uWave: { value: new Vector4(1, 1, 0, 0) },
-      uWave2: { value: new Vector4(2, 1, 0, 2) },
-      uField: { value: new Vector4() },
+      uWave: { value: new Vector4(WAVE.width, WAVE.depth, WAVE.height, WAVE.thickness) },
+      uWave2: { value: new Vector4(WAVE.lines, WAVE.rowsPerLine, 0, WAVE.rows) },
+      uField: { value: new Vector4(0.09, 0.33, 0.07, 0) },
     });
     this.initMat = rawMaterial(FULLSCREEN_VERT, INIT_FRAG, {
       uRes: { value: new Vector2(S, S) },
@@ -315,19 +340,18 @@ export class Engine {
       refs[i * 2 + 1] = (Math.floor(i / S) + 0.5) / S;
     }
     this.geometry.setAttribute("position", new BufferAttribute(refs, 2));
-    // refs are 2-D texel coordinates, not positions: give three a bounding
-    // sphere so it never tries to compute one from them
+    // refs are texel coordinates, not positions: never let three bound them
     this.geometry.boundingSphere = new Sphere(new Vector3(), 1e4);
     this.pointsMat = rawMaterial(PARTICLE_VERT, PARTICLE_FRAG, {
       uPosPrev: { value: null },
       uPosCurr: { value: null },
       uVel: { value: null },
       uSeed: { value: seedTex },
-      uKeyShape: { value: this.formPos[Math.max(0, opts.forms.indexOf("keyboard"))] },
       uAlpha: { value: 0 },
       uTime: { value: 0 },
       uKeys: { value: this.keyPress },
-      uKeyCfg: { value: new Vector4() },
+      uKeyCfgA: { value: new Vector4() },
+      uKeyCfgB: { value: new Vector4() },
       uKeyGlow: { value: 0 },
       uRipA: { value: this.ripA },
       uRipB: { value: this.ripB },
@@ -379,6 +403,10 @@ export class Engine {
     else if (!want && this.running) this.stop();
   }
 
+  get isRunning() {
+    return this.running;
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -390,20 +418,21 @@ export class Engine {
     this.pointsMat.dispose();
     this.geometry.dispose();
     for (const t of this.textures) t.dispose();
+    this.wave?.dispose();
     this.state.dispose();
     this.post.dispose();
     this.quad.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.canvas.remove();
-    const w = window as unknown as { __mote?: unknown };
-    if (w.__mote && (w.__mote as { engine?: Engine }).engine === this) delete w.__mote;
+    const w = window as unknown as { __mote?: { engine?: Engine } };
+    if (w.__mote?.engine === this) delete w.__mote;
   }
 
   // ------------------------------------------------------------------------
   // events
 
-  private listen<K extends keyof WindowEventMap>(target: Window | Document, type: K | string, fn: (e: never) => void, opts: AddEventListenerOptions = { passive: true }) {
+  private listen(target: Window | Document, type: string, fn: (e: never) => void, opts: AddEventListenerOptions = { passive: true }) {
     target.addEventListener(type, fn as EventListener, opts);
     this.cleanups.push(() => target.removeEventListener(type, fn as EventListener, opts));
   }
@@ -460,10 +489,8 @@ export class Engine {
       this.contextLost = true;
       this.syncRunning();
     };
-    const onRestored = () => {
-      // Simplest correct recovery: rebuild from scratch.
-      window.dispatchEvent(new CustomEvent("mote:context-restored"));
-    };
+    // simplest correct recovery: the React host rebuilds the engine
+    const onRestored = () => window.dispatchEvent(new CustomEvent("mote:context-restored"));
     this.canvas.addEventListener("webglcontextlost", onLost);
     this.canvas.addEventListener("webglcontextrestored", onRestored);
     this.cleanups.push(() => {
@@ -481,7 +508,6 @@ export class Engine {
     this.ndc.set((x / w) * 2 - 1, -((y / h) * 2 - 1));
     if (!this.cursorActive || fresh) this.cursorFresh = true;
     this.cursorActive = true;
-    this.lastMove = performance.now();
   }
 
   private onResize() {
@@ -497,7 +523,7 @@ export class Engine {
     const aspect = w / h;
     const wide = smoothstep(0.62, 1.45, aspect);
     const t = Math.tan(((FOV / 2) * Math.PI) / 180);
-    const frameW = 3.75 + (5.6 - 3.75) * wide;
+    const frameW = 4.0 + (5.6 - 4.0) * wide;
     const frameH = 3.4;
     this.camDist = Math.max(frameW / (2 * t * aspect), frameH / (2 * t));
     this.layout = { halfH: this.camDist * t, halfW: this.camDist * t * aspect, aspect, wide };
@@ -531,29 +557,59 @@ export class Engine {
         if (!e.repeat) this.keyAge[e.index] = 0;
       } else this.keyDown[e.index] = 0;
     }
-    if (e.down && !e.repeat) this.spawnRipple(e.index, e.code === "Space" ? 1.35 : 1);
+    if (e.down && !e.repeat) this.react(e.index, e.code === "Space");
   }
 
-  /** ripple origin/axis for the form currently on screen */
-  private spawnRipple(keyIndex: number, gain: number) {
-    const fi = Math.round(this.m);
-    const name = this.forms[Math.min(Math.max(fi, 0), this.forms.length - 1)];
-    const o = this.tmpV, axis = this.tmpV2;
-    if (name === "keyboard") {
-      const pose = fi === Math.floor(this.m) ? this.xfA : this.xfB;
-      if (keyIndex >= 0) o.fromArray(this.keyTops, keyIndex * 3);
-      else o.set(0, 0, 0);
-      o.applyMatrix4(pose);
-      axis.set(0, 1, 0).transformDirection(pose);
-    } else {
-      o.set(0, 0, 0);
-      axis.set(0, 0, 1);
+  /** the current form answers a keystroke: a ring, a waveform packet… */
+  private react(keyIndex: number, space: boolean) {
+    const fi = Math.min(Math.max(Math.round(this.m), 0), this.forms.length - 1);
+    const name = this.forms[fi];
+    const pose = fi === Math.floor(this.m) ? this.xfA : this.xfB;
+    const scale = this.tmpV2.setFromMatrixScale(pose).x;
+    const [ku, kv] = keyIndex >= 0 ? keyUV(keyIndex) : [0.5, 0.5];
+    const o = this.tmpV;
+    const axis = this.tmpV2;
+    let gain = space ? 1.35 : 1;
+    switch (name) {
+      case "keyboard":
+        if (keyIndex >= 0) o.fromArray(this.keyTops, keyIndex * 3);
+        else o.set(0, 0, 0);
+        o.applyMatrix4(pose);
+        axis.set(0, 1, 0).transformDirection(pose);
+        break;
+      case "exploded":
+        o.set(0, EXPLODED_HEIGHT / 2, 0).applyMatrix4(pose);
+        axis.copy(this.camera.position).sub(o).normalize();
+        gain *= 0.6;
+        break;
+      case "wordmark": {
+        const hgt = 1.3; // approx glyph height (local)
+        o.set((ku - 0.5) * WORDMARK_WIDTH, (0.5 - kv) * hgt, 0).applyMatrix4(pose);
+        axis.set(0, 0, 1).transformDirection(pose);
+        break;
+      }
+      case "field":
+        o.set((ku - 0.5) * 9, 0, -1.5 - kv * 3).applyMatrix4(pose);
+        axis.set(0, 1, 0).transformDirection(pose);
+        gain *= 1.3;
+        break;
+      case "waveform":
+        this.wave?.hit(ku, space ? 1.25 : 1, space);
+        return;
+      default:
+        return;
     }
     const i = this.ripNext;
     this.ripNext = (this.ripNext + 1) % MAX_RIPPLES;
     const tNow = this.simTime + this.acc;
-    this.ripA.set([o.x, o.y, o.z, tNow], i * 4);
-    this.ripB.set([axis.x, axis.y, axis.z, this.params.ripple.amplitude * gain], i * 4);
+    this.ripA[i * 4] = o.x;
+    this.ripA[i * 4 + 1] = o.y;
+    this.ripA[i * 4 + 2] = o.z;
+    this.ripA[i * 4 + 3] = tNow;
+    this.ripB[i * 4] = axis.x * scale;
+    this.ripB[i * 4 + 1] = axis.y * scale;
+    this.ripB[i * 4 + 2] = axis.z * scale;
+    this.ripB[i * 4 + 3] = this.params.ripple.amplitude * gain;
   }
 
   // ------------------------------------------------------------------------
@@ -576,7 +632,7 @@ export class Engine {
       this.stats.frameMs = this.stats.frameMs * 0.9 + real * 1000 * 0.1;
       this.stats.fps = 1000 / Math.max(this.stats.frameMs, 1e-3);
     }
-    if (this.monitor.sample(real)) this.applyLevel();
+    this.monitor.sample(real);
     if (this.levelApplied !== this.monitor.level) this.applyLevel();
   }
 
@@ -618,16 +674,28 @@ export class Engine {
     } else {
       this.m = smoothDamp(this.m, target, this.mVel, this.params.morph.smoothing, this.params.morph.maxRate, dt);
     }
-    const station = Math.round(this.m);
-    stationStore.set(station);
+    stationStore.set(Math.round(this.m));
+  }
+
+  private slots() {
+    const a = Math.min(Math.floor(this.m), this.forms.length - 1);
+    const b = Math.min(a + 1, this.forms.length - 1);
+    return { a, b, mix: b === a ? 0 : this.m - a };
   }
 
   private updatePoses(time: number) {
-    const a = Math.min(Math.floor(this.m), this.forms.length - 1);
-    const b = Math.min(a + 1, this.forms.length - 1);
+    const { a, b } = this.slots();
     formPose(this.forms[a], this.layout, time, this.xfA);
     formPose(this.forms[b], this.layout, time, this.xfB);
     formPose("dust", this.layout, time, this.xfD);
+  }
+
+  private keyCfg(formIndex: number, pose: Matrix4, weight: number, out: Vector4) {
+    const spec = FORM_SPECS[this.forms[formIndex]];
+    if (!spec.keyTravel) return out.set(0, 1, 0, 0);
+    const s = this.tmpV2.setFromMatrixScale(pose).x;
+    this.tmpV.set(0, 1, 0).transformDirection(pose);
+    return out.set(this.tmpV.x, this.tmpV.y, this.tmpV.z, spec.keyTravel * this.params.keys.travel / 0.04 * s * weight);
   }
 
   private update(dt: number, real: number) {
@@ -638,9 +706,7 @@ export class Engine {
 
     // morph
     this.computeMorph(dt);
-    const a = Math.min(Math.floor(this.m), this.forms.length - 1);
-    const b = Math.min(a + 1, this.forms.length - 1);
-    const mix = b === a ? 0 : this.m - a;
+    const { a, b, mix } = this.slots();
     const time = this.simTime + this.acc;
     this.updatePoses(time);
 
@@ -663,9 +729,8 @@ export class Engine {
     this.camera.lookAt(this.look);
     this.camera.updateMatrixWorld();
 
-    // cursor
-    // the field follows the air: a resting cursor makes a faint dent, a
-    // moving one stirs (presence scales with smoothed cursor speed)
+    // cursor: the field follows the air — a resting cursor makes a faint
+    // dent, a moving one stirs (presence scales with smoothed cursor speed)
     const stir = P.cursor.still + (1 - P.cursor.still) * smoothstep(0.02, P.cursor.stirSpeed, this.cursorVel.length());
     const presenceTarget = reduced || !this.cursorActive ? 0 : stir;
     const kc = 1 - Math.exp(-(dt > 0 ? dt : real) / Math.max(P.cursor.fade, 1e-3));
@@ -692,9 +757,10 @@ export class Engine {
       this.cursorPrev.copy(this.cursorWorld);
     }
 
-    // keys
+    // keys (+ the "any key" slots the exploded switch answers to)
     const kDown = 1 - Math.exp(-dt / P.keys.pressTime);
     const kUp = 1 - Math.exp(-dt / P.keys.releaseTime);
+    let any = 0;
     for (let i = 0; i < KEYS.length; i++) {
       this.keyAge[i] += dt;
       if (this.keyAuto[i] > 0 && this.keyAge[i] >= this.keyAuto[i]) {
@@ -704,6 +770,17 @@ export class Engine {
       const target = this.keyDown[i] || this.keyAge[i] < P.keys.minHold ? 1 : 0;
       const q = this.keyPress[i];
       this.keyPress[i] = q + (target - q) * (target > q ? kDown : kUp);
+      any = Math.max(any, this.keyPress[i]);
+    }
+    this.keyPress[ANY_KEY_SLOT] = any;
+    this.keyPress[HALF_KEY_SLOT] = any * 0.5;
+
+    // waveform history (only uploaded while the ridgeline is near)
+    if (this.wave) {
+      const wi = this.forms.indexOf("waveform");
+      this.wave.update(dt);
+      if (Math.abs(this.m - wi) < 1.2) this.wave.flush();
+      (this.simMat.uniforms.uWave2.value as Vector4).z = this.wave.head - 1;
     }
 
     // ---- uniforms -------------------------------------------------------
@@ -735,25 +812,24 @@ export class Engine {
     (su.uCursor.value as Vector4).set(P.cursor.radius, P.cursor.strength * pres, P.cursor.wake * pres, P.cursor.swirl * pres);
     su.uCursorLift.value = P.cursor.lift * pres;
     (su.uCursorVel.value as Vector3).copy(this.cursorVel);
-    (su.uLimits.value as Vector2).set(P.limits.maxSpeed, P.limits.maxAccel);
+    // limits are "per frame height": portrait layouts pull the camera back
+    // and scale the dust up, so absolute limits would slow the intro there
+    const fs = this.layout.halfH / 1.75;
+    (su.uLimits.value as Vector2).set(P.limits.maxSpeed * fs, P.limits.maxAccel * fs);
     (su.uCamPos.value as Vector3).copy(this.camera.position);
     su.uBackface.value = P.render.backface;
 
     const pu = this.pointsMat.uniforms;
-    const kbIndex = this.forms.indexOf("keyboard");
-    const kbWeight = kbIndex < 0 ? 0 : Math.max(0, 1 - Math.abs(this.m - kbIndex) * 2.5) * smoothstep(0.6, 1, intro);
-    if (kbIndex >= 0) {
-      const pose = Math.floor(this.m) === kbIndex ? this.xfA : this.xfB;
-      this.tmpV.set(0, 1, 0).transformDirection(pose);
-      (pu.uKeyCfg.value as Vector4).set(this.tmpV.x, this.tmpV.y, this.tmpV.z, P.keys.travel * kbWeight);
-    }
+    const introW = smoothstep(0.6, 1, intro);
+    this.keyCfg(a, this.xfA, introW, pu.uKeyCfgA.value as Vector4);
+    this.keyCfg(b, this.xfB, introW, pu.uKeyCfgB.value as Vector4);
     pu.uKeyGlow.value = P.keys.glow;
     (pu.uRipple.value as Vector4).set(P.ripple.speed, P.ripple.width, P.ripple.decay, P.ripple.spread);
     pu.uRippleDisp.value = reduced ? 0 : 1;
     pu.uSheen.value = P.ripple.sheen;
     const [quarters] = LADDER[this.monitor.level];
     const sizeComp = Math.pow(TIER_COUNT / quarters, 0.35);
-    (pu.uSize.value as Vector4).set(P.render.size * sizeComp, P.render.sizeJitter, P.render.minPx * this.stats.dpr, P.render.maxPx * this.stats.dpr);
+    (pu.uSize.value as Vector4).set(P.render.size * sizeComp * (this.camDist / 7.02) ** 0.25, P.render.sizeJitter, P.render.minPx * this.stats.dpr, P.render.maxPx * this.stats.dpr);
     (pu.uLens.value as Vector4).set(P.render.aperture, this.camDist + P.render.focusOffset, P.render.bokehCull, P.render.depthFade);
     pu.uOpacity.value = P.render.alpha;
     pu.uGlint.value = reduced ? 0 : P.render.glint;
@@ -894,6 +970,7 @@ export class Engine {
       },
       probe: (idx: number[]) => this.probe(idx),
       measure: () => this.measureAnchors(),
+      running: () => this.running,
       stats: () => ({ ...this.stats, tier: this.tier, N: this.N, m: this.m, match: this.matchStats }),
     };
   }

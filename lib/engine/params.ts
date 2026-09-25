@@ -81,9 +81,9 @@ const DEFS = {
     sheen: { v: 12, min: 0, max: 40, step: 0.5, doc: "brightness added per unit of ripple height" },
   },
   render: {
-    size: { v: 0.0095, min: 0.002, max: 0.04, step: 0.0005, unit: "u", doc: "sprite diameter at the focal plane" },
-    sizeJitter: { v: 0.35, min: 0, max: 0.8, step: 0.01, doc: "± sprite size variation" },
-    alpha: { v: 0.8, min: 0.05, max: 1, step: 0.01, doc: "base sprite opacity" },
+    size: { v: 0.0082, min: 0.002, max: 0.04, step: 0.0005, unit: "u", doc: "sprite diameter at the focal plane" },
+    sizeJitter: { v: 0.25, min: 0, max: 0.8, step: 0.01, doc: "± sprite size variation" },
+    alpha: { v: 0.72, min: 0.05, max: 1, step: 0.01, doc: "base sprite opacity" },
     aperture: { v: 0.05, min: 0, max: 0.25, step: 0.005, unit: "u", doc: "lens aperture (depth of field)" },
     focusOffset: { v: 0, min: -3, max: 3, step: 0.05, unit: "u", doc: "focus distance offset from the subject" },
     minPx: { v: 1.6, min: 0.5, max: 4, step: 0.05, unit: "px", doc: "smallest sprite; smaller ones fade instead" },
