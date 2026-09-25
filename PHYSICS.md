@@ -172,7 +172,9 @@ $c_{air}(u - v)$:
   density changes.
 
 With `flow.speed` = 0.08 u/s, $\delta$ ≈ 0.006 u ≈ 1.5 px on a laptop:
-the surface shimmers but key gaps stay crisp.
+the surface shimmers but key gaps stay crisp. (The RMS of one curl octave is
+3.96 per unit of domain frequency, measured by `scripts/physics-check.mjs`;
+the shader divides by it so `flow.speed` really is the RMS wind speed.)
 
 *Time evolution without precision loss:* instead of $p + t\cdot\hat d$ (which
 grows without bound and loses float precision after an hour) the noise domain
@@ -195,7 +197,7 @@ $$W(d) = \big(1 - (d/R)^2\big)^3 \ \ (d<R), \quad 0 \text{ otherwise}$$
 (the SPH "poly6" kernel: $W(0)=1$, $W'(0)=0$, and $W, W', W''$ all vanish at
 $R$ → C² with compact support).
 
-$$F = W(d)\Big[S\,\hat r \;+\; K_w\,(u_c - v) \;+\; \Omega_s\,(\hat d\times\hat r)\Big]$$
+$$F = \pi(t)\,W(d)\Big[S\,\hat r \;-\; L\,\hat d \;+\; K_w\,(u_c - v) \;+\; \Omega_s\,(\hat d\times\hat r)\Big]$$
 
 * $S\hat r$: gentle push aside. Max force is $S$ — **bounded**. A raw
   $1/r^2$ is unbounded at the core: a particle passing close to the ray gets an
@@ -204,9 +206,18 @@ $$F = W(d)\Big[S\,\hat r \;+\; K_w\,(u_c - v) \;+\; \Omega_s\,(\hat d\times\hat 
   stirring smoke. $u_c$ is the cursor's world velocity on the focal plane,
   low-passed (τ = 60 ms) and clamped.
 * $\Omega_s(\hat d\times\hat r)$: a small swirl so the wake curls.
+* $-L\hat d$: a lift back along the ray, toward the camera: disturbed motes
+  rise out of the surface and soften into bokeh instead of sliding sideways.
 * $\hat r = r/(|r|+\varepsilon)$ → no NaN on the ray itself.
-* Equilibrium displacement at the core for a bound particle: $S/k$ = 5/24 ≈
-  0.2 u — about a key width. Presence fades in/out over 250 ms.
+* **Presence $\pi(t)$ follows the air, not the pointer.** The first prototype
+  used a constant field and a resting cursor punched a hard black hole in the
+  keyboard — a cut-out, not dust. Dust only moves when the air moves, so
+  $\pi = \text{still} + (1-\text{still})\cdot\text{smoothstep}(0.02, v_{stir}, |u_c|)$:
+  a resting cursor leaves a faint dent (30 %), a moving one stirs and carries
+  motes in its wake. $\pi$ is low-passed (250 ms) and drops to 0 when the
+  pointer leaves.
+* Equilibrium displacement at the core for a bound particle at full presence:
+  $\sqrt{S^2+L^2}/k$ = 2.5/24 ≈ 0.1 u ≈ half a key.
 
 Touch acts as the cursor (`touchstart/touchmove`, passive); the field fades
 out on `touchend`.
@@ -242,6 +253,12 @@ lofted rounded-rect walls, cylinders, a helix, glyph masks, planes). Sampling:
    rotation** per primitive. R2 has the best packing of the low-discrepancy
    sequences (no clumps, no holes, blue-ish spectrum). Rounded corners, holes
    and glyphs use rejection on top of R2, which keeps low discrepancy.
+   *Lesson from the prototype:* R2 is a lattice-like Kronecker sequence, and
+   stretched over a thin strip (a keycap skirt is ~60 mm around but 8 mm tall;
+   the case front is 330 × 18 mm) its lattice showed as diagonal **moiré
+   stripes**. Fix: run the sequence over a *square* of side max(w, h) in real
+   units, clip to the w × h domain, and jitter each point by ±0.2× the mean
+   spacing — isotropic, still clump-free, no visible lattice.
    Lofted walls sample height with an inverse-CDF so density stays uniform
    as the perimeter shrinks toward the keycap top.
 3. **Why R2 and not Poisson-disk:** R2 is **progressive** — every prefix of
@@ -455,6 +472,18 @@ avoids clipping but still desaturates dense areas and makes brightness depend
 on density. With one accent hue on ~1 % of particles, order dependence is
 limited to accent/base overlaps and is imperceptible at our alphas.
 
+**Brightness is colour, opacity is coverage.** The first prototype put the
+baked lighting into alpha. Under "over" blending that is wrong: a dense
+surface saturates to the full particle colour whatever its shade, so every
+keycap wall came out as bright as the tops and the form flattened. Now
+$\text{colour} = C\cdot b$ (the light a mote scatters) and
+$\alpha = \alpha_0(0.45 + 0.55\,b)$ (coverage, dim motes slightly thinner).
+Dense regions converge to $C\cdot b$: a lit top to near-white, a wall in shadow
+to a dark warm grey — it behaves like an occluding surface. Particles of
+different brightness are, strictly, different colours, so overlaps are
+order-dependent; the draw order is spatially random, so the result is a
+statistically even mix with no structure to see.
+
 **Bloom, restrained.** Physically-based dual-filter bloom (13-tap down, tent
 up) on a soft-knee threshold at 0.62 luminance, strength 0.3: only the densest,
 brightest regions get a faint halo. Composite in linear light, vignette on the
@@ -537,48 +566,81 @@ Every value below is live-editable in `?debug` (lil-gui). This table is
 generated from `lib/engine/params.ts` (`npm run params:doc`).
 
 <!-- PARAMS:START -->
-| group | key | default | range | meaning |
-|---|---|---|---|---|
-| sim | dt | 1/120 s | 1/240 – 1/60 | fixed timestep |
-| sim | maxSubsteps | 4 | 1 – 8 | substep cap per frame |
-| sim | maxFrameDt | 0.05 s | 0.02 – 0.1 | frame dt clamp |
-| spring | frequency | 0.78 Hz | 0.3 – 2 | f₀ of the target spring |
-| spring | damping | 0.82 | 0.5 – 1.2 | damping ratio ζ |
-| spring | massJitter | 0.15 | 0 – 0.4 | ± mass variation |
-| spring | looseFraction | 0.04 | 0 – 0.15 | share of loose motes |
-| spring | looseStiffness | 0.04 | 0.005 – 0.3 | stiffness multiplier for loose motes |
-| flow | speed | 0.08 u/s | 0 – 0.6 | RMS wind speed |
-| flow | frequency | 0.85 | 0.2 – 3 | spatial frequency |
-| flow | evolution | 0.12 | 0 – 0.6 | how fast the wind changes |
-| flow | octave2 | 0.4 | 0 – 1 | second octave weight |
-| flow | coupling | 1.8 s⁻¹ | 0 – 6 | air drag coefficient |
-| flow | transitBoost | 6 | 0 – 15 | wind multiplier mid-morph |
-| cursor | radius | 0.55 u | 0.1 – 1.5 | kernel radius |
-| cursor | strength | 5 | 0 – 20 | push |
-| cursor | wake | 1.4 | 0 – 6 | drag toward cursor velocity |
-| cursor | swirl | 0.6 | 0 – 5 | tangential swirl |
-| limits | maxSpeed | 3.2 u/s | 0.5 – 10 | velocity clamp |
-| limits | maxAccel | 80 u/s² | 5 – 300 | acceleration clamp |
-| morph | window | 0.55 | 0.1 – 1 | per-particle share of the transition |
-| morph | jitter | 0.25 | 0 – 0.6 | randomness of release order |
-| morph | arc | 0.22 u | 0 – 1 | mid-flight lift |
-| morph | smoothing | 0.35 s | 0 – 1.5 | scroll-progress smoother |
-| morph | maxRate | 1.2 /s | 0.2 – 5 | max shapes per second |
-| intro | duration | 4.6 s | 1 – 10 | dust → keyboard |
-| keys | travel | 0.04 u | 0 – 0.1 | key travel (4 mm) |
-| ripple | speed | 1.25 u/s | 0.2 – 4 | ring speed |
-| ripple | width | 0.09 u | 0.02 – 0.4 | ring width σ |
-| ripple | amplitude | 0.028 u | 0 – 0.15 | ring height |
-| ripple | decay | 1.1 s | 0.2 – 4 | ring lifetime T |
-| render | size | 0.0105 u | 0.002 – 0.04 | sprite diameter |
-| render | aperture | 0.035 | 0 – 0.2 | depth-of-field strength |
-| render | backface | 0.82 | 0 – 1 | fade of back-facing samples |
-| bloom | threshold | 0.62 | 0 – 1.5 | soft-knee threshold |
-| bloom | strength | 0.3 | 0 – 2 | bloom mix |
+| group | key | default | range | unit | meaning |
+|---|---|---|---|---|---|
+| sim | `dt` | 1/120 | 1/240 – 1/60 | s | fixed simulation timestep |
+| sim | `maxSubsteps` | 4 | 1 – 8 |  | substep cap per frame (excess time is dropped) |
+| sim | `maxFrameDt` | 0.05 | 0.02 – 0.1 | s | frame dt clamp (tab switches, hitches) |
+| sim | `timeScale` | 1 | 0 – 2 |  | global time multiplier (debug) |
+| spring | `frequency` | 0.78 | 0.3 – 2 | Hz | natural frequency f₀ of the pull to targets |
+| spring | `damping` | 0.82 | 0.5 – 1.2 |  | damping ratio ζ (1.1 % overshoot at 0.82) |
+| spring | `massJitter` | 0.15 | 0 – 0.4 |  | ± per-particle mass variation (de-synchronises arrivals) |
+| spring | `looseFraction` | 0.04 | 0 – 0.15 |  | share of loose motes that orbit their home |
+| spring | `looseStiffness` | 0.04 | 0.005 – 0.3 |  | stiffness multiplier for loose motes |
+| flow | `speed` | 0.08 | 0 – 0.6 | u/s | RMS speed of the curl-noise wind |
+| flow | `frequency` | 0.85 | 0.2 – 3 | 1/u | spatial frequency of the wind |
+| flow | `evolution` | 0.12 | 0 – 0.6 |  | how fast the wind pattern changes |
+| flow | `octave2` | 0.4 | 0 – 1 |  | weight of the second (2.1×) octave |
+| flow | `coupling` | 1.8 | 0 – 6 | 1/s | air drag coefficient c_air (part of total damping) |
+| flow | `transitBoost` | 6 | 0 – 15 |  | wind multiplier mid-morph (4e(1-e) weighted) |
+| cursor | `radius` | 0.5 | 0.1 – 1.5 | u | poly6 kernel radius around the cursor ray |
+| cursor | `strength` | 2.3 | 0 – 20 | u/s² | radial push at the core (bounded) |
+| cursor | `lift` | 0.9 | 0 – 10 | u/s² | push toward the camera (motes rise into bokeh) |
+| cursor | `wake` | 3.2 | 0 – 6 | 1/s | drag toward the cursor's velocity |
+| cursor | `swirl` | 1.4 | 0 – 5 | u/s² | tangential swirl around the ray |
+| cursor | `still` | 0.3 | 0 – 1 |  | field strength while the cursor rests (air only moves when the hand does) |
+| cursor | `stirSpeed` | 0.7 | 0.05 – 3 | u/s | cursor speed for the full field |
+| cursor | `smoothing` | 0.06 | 0 – 0.3 | s | low-pass on cursor velocity |
+| cursor | `fade` | 0.25 | 0.02 – 1 | s | presence fade in/out |
+| limits | `maxSpeed` | 3.2 | 0.5 – 10 | u/s | velocity clamp |
+| limits | `maxAccel` | 80 | 5 – 300 | u/s² | acceleration clamp |
+| morph | `window` | 0.55 | 0.1 – 1 |  | share of the transition each particle travels in |
+| morph | `jitter` | 0.25 | 0 – 0.6 |  | randomness mixed into the release order |
+| morph | `arc` | 0.22 | 0 – 1 | u | mid-flight lift toward the camera |
+| morph | `smoothing` | 0.35 | 0 – 1.5 | s | critically-damped smoothing of scroll progress |
+| morph | `maxRate` | 1.2 | 0.2 – 5 | 1/s | max morph speed (shapes per second) |
+| morph | `hold` | 0.3 | 0 – 0.45 |  | share of the scroll between sections where a form holds |
+| intro | `duration` | 4.4 | 1 – 10 | s | dust → keyboard assembly time |
+| intro | `delay` | 0.5 | 0 – 3 | s | dust drift before assembly starts |
+| intro | `window` | 0.42 | 0.1 – 1 |  | share of the intro each particle travels in |
+| keys | `travel` | 0.04 | 0 – 0.1 | u | key travel (4.0 mm) |
+| keys | `pressTime` | 0.018 | 0.005 – 0.1 | s | time constant going down |
+| keys | `releaseTime` | 0.07 | 0.01 – 0.3 | s | time constant coming back up |
+| keys | `minHold` | 0.07 | 0 – 0.2 | s | minimum visible press for fast taps |
+| keys | `glow` | 0.35 | 0 – 1.5 |  | brightness lift of a pressed keycap |
+| ripple | `speed` | 1.3 | 0.2 – 4 | u/s | ring expansion speed |
+| ripple | `width` | 0.13 | 0.02 – 0.4 | u | ring width σ (Ricker wavelet) |
+| ripple | `amplitude` | 0.05 | 0 – 0.15 | u | ring height |
+| ripple | `decay` | 1.2 | 0.2 – 4 | s | ring lifetime T |
+| ripple | `spread` | 0.35 | 0.05 – 2 | u | r₀ of the 1/√(1+r/r₀) energy spreading |
+| ripple | `sheen` | 12 | 0 – 40 |  | brightness added per unit of ripple height |
+| render | `size` | 0.0095 | 0.002 – 0.04 | u | sprite diameter at the focal plane |
+| render | `sizeJitter` | 0.35 | 0 – 0.8 |  | ± sprite size variation |
+| render | `alpha` | 0.8 | 0.05 – 1 |  | base sprite opacity |
+| render | `aperture` | 0.05 | 0 – 0.25 | u | lens aperture (depth of field) |
+| render | `focusOffset` | 0 | -3 – 3 | u | focus distance offset from the subject |
+| render | `minPx` | 1.6 | 0.5 – 4 | px | smallest sprite; smaller ones fade instead |
+| render | `maxPx` | 56 | 8 – 200 | px | largest sprite |
+| render | `bokehCull` | 4 | 1 – 32 |  | area growth before stochastic bokeh culling starts |
+| render | `backface` | 0.82 | 0 – 1 |  | fade of samples on faces pointing away |
+| render | `depthFade` | 0.4 | 0 – 1 |  | aerial-perspective dimming behind the subject |
+| render | `glint` | 0.6 | 0 – 3 |  | occasional glints of loose motes catching the light |
+| render | `exposure` | 1 | 0.2 – 2 |  | particle brightness |
+| bloom | `threshold` | 0.62 | 0 – 1.5 |  | soft-knee luminance threshold |
+| bloom | `knee` | 0.35 | 0 – 1 |  | soft-knee width |
+| bloom | `strength` | 0.3 | 0 – 2 |  | bloom mix |
+| bloom | `radius` | 0.75 | 0 – 1 |  | upsample spread |
+| grade | `vignette` | 0.28 | 0 – 1 |  | edge darkening of the particle layer |
+| grade | `dither` | 1 | 0 – 3 | LSB | triangular dither amplitude |
+| parallax | `yaw` | 5 | 0 – 20 | ° | camera yaw following the pointer |
+| parallax | `pitch` | 3 | 0 – 15 | ° | camera pitch following the pointer |
+| parallax | `smoothing` | 1.2 | 0.05 – 4 | s | parallax time constant |
+| parallax | `breathe` | 0.9 | 0 – 4 | ° | slow autonomous camera drift |
+
+68 parameters, all live in `?debug`.
 <!-- PARAMS:END -->
 
-(Table above is the Phase-1 plan; it is replaced by the generated table once
-`params.ts` exists.)
+
 
 ---
 
@@ -595,3 +657,32 @@ generated from `lib/engine/params.ts` (`npm run params:doc`).
 * **Analytic Ricker rings** instead of a height field. §4.
 * **WebGL2 GPGPU with MRT**, no WebGPU. §5.
 * **Premultiplied over-blending** + energy-conserving DOF. §6.
+
+---
+
+## 12. Verification (measured, not assumed)
+
+`npm run physics:check` runs the exact GPU integrator on the CPU:
+
+| claim | analytic | measured (semi-implicit Euler, h = 1/120) |
+|---|---|---|
+| step overshoot (ζ = 0.82, f₀ = 0.78 Hz) | 1.11 % | **0.86 %** (the integrator adds ~3 % damping: per-step decay √(1−hc)) |
+| peak time | 1.12 s | 1.14 s |
+| 2 % settle | ≤ 1.11 s (envelope bound) | **0.80 s** |
+| settle spread from ±15 % mass | — | 0.74 – 0.86 s |
+| eased 1 u move in 2.5 s: landing overshoot | — | **0.16 %** (moving targets land softly) |
+| stability h²ω² + 2hc (< 4) | — | 0.136 default; 1.05 at the stiffest settings with h = 1/60 |
+| simplex analytic gradient vs finite differences | exact | 1e-7 relative error |
+| curl-noise divergence \|∇·u\| / \|∂uᵢ/∂xᵢ\| | 0 | **4e-6** (float noise: divergence-free) |
+| curl RMS per octave (normalisation) | — | 3.96 |
+
+Prototype (`/lab`, keyboard + cursor, N = 102 400, Intel UHD 770 via headless ANGLE/EGL):
+
+* shape build (keyboard + dust sampling, tiering, matching): **≈ 180 ms**;
+* median-bisection matching, keyboard ↔ dust: mean view-space travel
+  **2.14 u vs 3.00 u** for a random assignment (−29 %; the dust volume is much
+  larger than the keyboard, so part of every path is irreducible);
+* at rest, over 90 frames (`scripts/shoot-lab.mjs`): bound particles drift a
+  median **0.016 px/frame** (≈ 1 px/s — alive, never still), loose motes up to
+  0.29 px/frame; frame-to-frame acceleration median **0.0003 px/frame²** —
+  i.e. no integration jitter at rest.

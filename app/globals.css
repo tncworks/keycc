@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — the single source of truth for the DOM *and* the shaders.
+ * The engine reads --color-ground / --color-particle / --color-accent at
+ * startup (lib/engine/colors.ts). `static` keeps every token emitted even
+ * when no utility class references it.
+ */
+@theme static {
+  /* palette: near-black warm ground, warm off-white, one muted ember accent */
+  --color-ground: #0b0a09;
+  --color-ink: #ece6dc;
+  --color-particle: #efe7d9;
+  --color-muted: #948c80;
+  --color-faint: #5f5950;
+  --color-line: rgb(236 230 220 / 0.11);
+  --color-accent: #c47a53;
+
+  /* type scale (fluid, clamped) */
+  --text-display: clamp(3rem, 7.4vw, 7.25rem);
+  --text-display--line-height: 0.94;
+  --text-display--letter-spacing: -0.038em;
+  --text-headline: clamp(2.25rem, 4.6vw, 4.25rem);
+  --text-headline--line-height: 1;
+  --text-headline--letter-spacing: -0.03em;
+  --text-title: clamp(1.375rem, 2vw, 1.75rem);
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.015em;
+  --text-lede: clamp(1.0625rem, 1.25vw, 1.1875rem);
+  --text-lede--line-height: 1.55;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.6;
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1.2;
+  --text-label--letter-spacing: 0.2em;
+
+  --ease-calm: cubic-bezier(0.22, 0.61, 0.24, 1);
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@theme inline {
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-ground);
+    color: var(--color-ink);
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  /* No body background: the fixed particle layer (z-index -10) sits between
+     the html ground and the content; a body background would cover it. */
+  body {
+    font-family: var(--font-sans);
+    min-height: 100%;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 45%, transparent);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 1px solid var(--color-ink);
+    outline-offset: 4px;
+  }
+}

@@ -5,20 +5,20 @@ Each item names how it is verified.
 
 ## Phase 1 — think before coding
 
-- [ ] PHYSICS.md written before any code (git history shows it first)
-- [ ] Integration: semi-implicit Euler vs Verlet, fixed timestep + accumulator, dt clamping after tab switches
-- [ ] Spring-damper: stiffness + damping ratio chosen with the maths shown (soft settle, minimal overshoot)
-- [ ] Curl noise ambient drift (divergence-free, no clumping)
-- [ ] Cursor field with smooth falloff (never raw 1/r²)
-- [ ] Drag and velocity limits
-- [ ] Morphs: area-weighted + blue-noise sampling, crossing-avoiding assignment, staggered release
-- [ ] Keypress: height field vs analytic ring — choice justified
-- [ ] GPU architecture: ping-pong float textures, passes per frame, precision, per-tier budget
-- [ ] Rendering: soft round sprites, depth via size + alpha, restrained bloom, blending choice justified
-- [ ] Failure modes and guards
-- [ ] Table of every tunable parameter with defaults and ranges (generated from params.ts)
-- [ ] Engine prototyped alone (one shape + cursor) and feel tuned before the site
-- [ ] git init, commit after each phase
+- [x] PHYSICS.md written before any code (git history shows it first)
+- [x] Integration: semi-implicit Euler vs Verlet, fixed timestep + accumulator, dt clamping after tab switches
+- [x] Spring-damper: stiffness + damping ratio chosen with the maths shown (soft settle, minimal overshoot)
+- [x] Curl noise ambient drift (divergence-free, no clumping)
+- [x] Cursor field with smooth falloff (never raw 1/r²)
+- [x] Drag and velocity limits
+- [x] Morphs: area-weighted + blue-noise sampling, crossing-avoiding assignment, staggered release
+- [x] Keypress: height field vs analytic ring — choice justified
+- [x] GPU architecture: ping-pong float textures, passes per frame, precision, per-tier budget
+- [x] Rendering: soft round sprites, depth via size + alpha, restrained bloom, blending choice justified
+- [x] Failure modes and guards
+- [x] Table of every tunable parameter with defaults and ranges (generated from params.ts)
+- [x] Engine prototyped alone (one shape + cursor) and feel tuned before the site
+- [~] git init, commit after each phase (Phase 1 committed)
 
 ## Phase 2 — the site
 
@@ -61,7 +61,7 @@ Performance
 
 - [ ] CHECKLIST.md kept current; done/left printed at the end of every turn
 - [ ] Playwright screenshots of every section at 1440 px and 390 px, incl. mid-morph frames via debug hooks
-- [ ] Headless WebGL works (launch flags fixed, not skipped)
+- [x] Headless WebGL works (launch flags fixed, not skipped)
 - [ ] Per-frame cost reasoned (PHYSICS.md §9); real fps left to the ?debug overlay
 - [ ] Polish pass 1 (physics feel, transition timing, typography & spacing, colour, mobile) — logged
 - [ ] Polish pass 2 — logged
