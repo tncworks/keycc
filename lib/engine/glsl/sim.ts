@@ -1,4 +1,6 @@
 import { NOISE_GLSL } from "./noise";
+import { COIL_GLSL } from "../shapes/coil";
+import { CURVE } from "../shapes/curve";
 
 /**
  * One simulation substep for every particle (PHYSICS.md §1–§3), written to
@@ -55,13 +57,34 @@ uniform sampler2D uWaveTex;
 uniform vec4 uWave;     // width, depth, height, thickness
 uniform vec4 uWave2;    // lines, rows per line, head row, rows
 uniform vec4 uField;    // amplitude, frequency, speed, -
+uniform vec4 uCurve;    // switch curve: F0, k, bump height, bump x
+uniform vec4 uCurve2;   // bump width, spike height, spike start, travel
+uniform vec4 uCurve3;   // actuation x, bead (any-key press 0..1), -, -
+uniform vec4 uCoil;     // phase, -, -, -
+uniform vec4 uCoilPulse; // sim start times of the last four pulses (<0: none)
 
 layout(location = 0) out vec4 oPos;
 layout(location = 1) out vec4 oVel;
 
 ${NOISE_GLSL}
 
+${COIL_GLSL}
+
 float smoother(float t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
+
+// switch force curve — mirrors force() in shapes/curve.ts
+float swForce(float x) {
+  float s = smoothstep(uCurve2.z, uCurve2.w, x);
+  float g = exp(-pow((x - uCurve.w) / uCurve2.x, 2.0));
+  return uCurve.x + uCurve.y * min(x, uCurve2.w) + uCurve.z * g + uCurve2.y * s * s;
+}
+float swForceUp(float x) {
+  float g = exp(-pow((x - uCurve.w) / uCurve2.x, 2.0));
+  return swForce(x) - 7.0 - 0.45 * uCurve.z * g;
+}
+vec2 chartXY(float x, float F) {
+  return vec2((x / ${CURVE.axisMM.toFixed(1)} - 0.5) * ${CURVE.width.toFixed(3)}, (F / ${CURVE.maxF.toFixed(1)} - 0.5) * ${CURVE.height.toFixed(3)});
+}
 
 float release(float p, float order, float rnd, float w, float jitter) {
   float d = mix(order, rnd, jitter);
@@ -87,6 +110,55 @@ vec4 formPoint(int kind, vec4 t) {
     float depth01 = t.y / max(lines - 1.0, 1.0);
     vec3 p = vec3((t.x - 0.5) * uWave.x, a * uWave.z + t.z * uWave.w, (0.5 - depth01) * uWave.y);
     return vec4(p, 1.0 + 1.6 * clamp(a, 0.0, 1.0));
+  }
+  if (kind == 4) {
+    // switch force chart: t = (u, role*4 + v, w, attr)
+    float role = floor(t.y / 4.0);
+    float v = t.y - 4.0 * role;
+    float u = t.x;
+    float travel = uCurve2.w;
+    float ang = t.z * 6.2831853;
+    float bright = 1.0;
+    vec3 p;
+    if (role < 0.5) {
+      float x = u * travel;
+      p = vec3(chartXY(x, swForce(x)), 0.0) + vec3(0.0, cos(ang), sin(ang)) * 0.013;
+      float d = (u - uCurve3.y) / 0.03;
+      bright += 2.4 * exp(-d * d) * smoothstep(0.02, 0.08, uCurve3.y);
+    } else if (role < 1.5) {
+      float x = u * travel;
+      p = vec3(chartXY(x, swForceUp(x)), 0.0) + vec3(0.0, cos(ang), sin(ang)) * 0.008;
+    } else if (role < 2.5) {
+      float x = u * travel;
+      p = vec3(chartXY(x, swForce(x) * v), (t.z - 0.5) * 0.16);
+      bright = 0.3 + 0.7 * v * v;
+    } else if (role < 3.5) {
+      p = vec3((u - 0.5) * ${CURVE.width.toFixed(3)}, (v - 0.5) * ${CURVE.height.toFixed(3)}, (t.z - 0.5) * 0.015);
+    } else if (role < 4.5) {
+      float x = uCurve3.x;
+      p = vec3(chartXY(x, swForce(x)) + vec2(cos(ang), sin(ang)) * (0.055 + 0.012 * v), 0.0);
+      float a = x / travel;
+      bright = 1.0 + 1.6 * smoothstep(a - 0.05, a, uCurve3.y);
+    } else {
+      float x = uCurve3.x;
+      p = vec3(chartXY(x, swForce(x) * v), 0.0);
+    }
+    return vec4(p, bright);
+  }
+  if (kind == 5) {
+    // coiled cable: t = (s, part*4 + a, b, attr); the coil turns with phase
+    float part = floor(t.y / 4.0);
+    float a = t.y - 4.0 * part;
+    vec4 c = coilPoint(t.x, part, a, t.z, uCoil.x);
+    float bright = c.w;
+    for (int i = 0; i < 4; i++) {
+      float t0 = uCoilPulse[i];
+      float age = uTime - t0;
+      if (t0 < 0.0 || age < 0.0 || age > 2.6) continue;
+      float d = (t.x - (1.0 - age * 0.62)) / 0.02;
+      bright += 1.9 * exp(-d * d) * (1.0 - age / 2.6);
+    }
+    return vec4(c.xyz, bright);
   }
   if (kind == 3) {
     // undulating horizon field: t = (x, z, phase, attr)

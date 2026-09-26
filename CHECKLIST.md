@@ -72,6 +72,17 @@ Performance
 - [x] Zero console errors — *verify + every shoot run: dev and production*
 - [x] Screenshots look premium — *final sets in `shots/site/`*
 
+## Round 2 — finished product page
+
+- [x] Switches chapter: particle force curve that reshapes for Linear / Tactile / Silent, live actuation label, bead that follows a key press — *`npm run interactions`; shots `interactions/curve-*`*
+- [x] Design chapter: keyboard from above with pinned details; Chalk / Graphite / Ember re-tint the particle case — *interactions; shots `interactions/design-*`*
+- [x] Connectivity chapter: coiled aviator cable whose coils travel; keystrokes pulse down the cable — *shots `interactions/coil-pulses`*
+- [x] Acoustics: "Play a sentence" demo for visitors without a keyboard — *interactions (14 live bursts)*
+- [x] Tap or click a particle keycap to press it (phones included) — *interactions: KeyG 0.98 after a click*
+- [x] Process, full specifications, in the box, reviews, FAQ (accessible `<details>`), configured reservation card with ANSI/ISO — *shots at 1440 and 390*
+- [x] Phone layouts: visual on top, copy below, via the tall-section anchor rule — *shots `site/mobile-*`*
+- [x] Everything still clean: 19/19 verify, 6/6 interactions, eslint, tsc, zero console errors (dev and production)
+
 ## Not done / known limits
 
 - Real-device fps (a physical mid-range laptop and phones) is not measured here: headless numbers are not meaningful, so the budget is argued in PHYSICS §9 and left to the `?debug` meter.

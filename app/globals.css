@@ -131,3 +131,19 @@
     transition-duration: 0.4s;
   }
 }
+
+/* content swapped by a picker eases in */
+@keyframes swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.swap-in {
+  animation: swap-in 0.7s var(--ease-calm) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .swap-in {
+    animation: none;
+  }
+}

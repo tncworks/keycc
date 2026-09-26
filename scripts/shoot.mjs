@@ -11,6 +11,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { launch, watchConsole } from "./browser.mjs";
+import { ANCHOR_JS } from "./anchor.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:3100";
 const OUT = process.env.OUT ?? "shots/site";
@@ -70,13 +71,10 @@ for (const vp of VIEWPORTS) {
   await page.evaluate(() => window.__mote.advance(1.5));
 
   // ---- sections and the transitions between them ----------------------
-  const anchors = await page.evaluate(() => {
-    const vh = window.innerHeight;
-    return Array.from(document.querySelectorAll("[data-form]")).map((el) => {
-      const r = el.getBoundingClientRect();
-      return { id: el.id || el.dataset.form, form: el.dataset.form, y: Math.max(0, r.top + window.scrollY + r.height / 2 - vh / 2) };
-    });
-  });
+  const anchors = await page.evaluate((src) => {
+    const at = eval(src);
+    return Array.from(document.querySelectorAll("[data-form]")).map((el) => ({ id: el.id || el.dataset.form, form: el.dataset.form, y: Math.max(0, at(el)) }));
+  }, ANCHOR_JS);
   const go = async (y, settle, name, reveal = 1500) => {
     await page.evaluate(
       ([y, settle]) => {

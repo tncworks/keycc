@@ -27,7 +27,8 @@ export function buildField(N: number, rng: Rng): { buf: ShapeBuffer; rest: Float
     const edge = Math.min(Math.max((FIELD.x1 - Math.abs(X)) / 2.5, 0), 1);
     // brightest in the middle distance: the near edge would read as coarse gravel
     const near = Math.min(Math.max((FIELD.z1 - Z) / 3.2, 0), 1);
-    const shade = (0.1 + 0.46 * Math.pow(1 - far, 1.4) + 0.06 * rng()) * (0.35 + 0.65 * edge) * (0.25 + 0.75 * near * near);
+    // calm enough to set long passages of text over it
+    const shade = 0.68 * (0.1 + 0.46 * Math.pow(1 - far, 1.4) + 0.06 * rng()) * (0.35 + 0.65 * edge) * (0.25 + 0.75 * near * near);
     buf.push(X, Z, rng(), 0, 0, 0, packAttr(shade, -1, false), 0, (got + 0.5) / N);
     rest[got * 3] = X;
     rest[got * 3 + 1] = 0;

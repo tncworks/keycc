@@ -43,6 +43,11 @@ uniform float uGlint;
 uniform float uLooseFrac;
 uniform vec3 uColor;
 uniform vec3 uAccent;
+// finish tints per morph slot: case (non-key) and keycap particles
+uniform vec3 uCaseTintA;
+uniform vec3 uCaseTintB;
+uniform vec3 uKeyTintA;
+uniform vec3 uKeyTintB;
 
 out vec4 vColor;
 out float vBlur;
@@ -123,7 +128,8 @@ void main() {
   }
   s = min(s, uSize.w);
 
-  vec3 col = mix(uColor, uAccent, clamp(accent, 0.0, 1.0));
+  vec3 tint = kid >= 0 ? (slotB > 0.5 ? uKeyTintB : uKeyTintA) : (slotB > 0.5 ? uCaseTintB : uCaseTintA);
+  vec3 col = mix(uColor, uAccent, clamp(accent, 0.0, 1.0)) * tint;
   col *= bright * lift * (1.0 + uSheen * max(sheen, 0.0));
   vColor = vec4(col, clamp(alpha, 0.0, 1.0));
   gl_PointSize = s;

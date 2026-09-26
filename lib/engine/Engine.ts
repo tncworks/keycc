@@ -11,6 +11,8 @@ import {
   BufferAttribute,
   BufferGeometry,
   Matrix4,
+  Ray,
+  Plane,
   Mesh,
   PerspectiveCamera,
   Points,
@@ -26,7 +28,7 @@ import {
 import type { Assembly } from "./assign";
 import { buildForms, type BuildRequest, type BuildResult } from "./build";
 import { readPalette, type Palette } from "./colors";
-import { FORM_SPECS, formPose, keyboardKeyTops, type BuildContext, type FormName, type Layout } from "./forms";
+import { FORM_SPECS, anchorLocal, formPose, keyboardKeyTops, type BuildContext, type FormName, type Layout } from "./forms";
 import { INIT_FRAG, SIM_FRAG, FULLSCREEN_VERT } from "./glsl/sim";
 import { KEY_SLOTS, MAX_RIPPLES, PARTICLE_FRAG, PARTICLE_VERT } from "./glsl/particles";
 import { FullscreenQuad, Post, StatePair, dataTexture, premultipliedOver, rawMaterial } from "./gpu";
@@ -35,10 +37,12 @@ import { defaultParams, type Params } from "./params";
 import { rngFor } from "./random";
 import { ANY_KEY_SLOT, HALF_KEY_SLOT, EXPLODED_HEIGHT, EXPLODED_PARTS } from "./shapes/exploded";
 import { WAVE } from "./shapes/waveform";
+import { SWITCHES, type SwitchCurve } from "./shapes/curve";
+import { KEY_PLANE_Y, keyAt } from "./shapes/keyboard";
 import { rasterizeWordmark, WORDMARK_WIDTH } from "./shapes/wordmark";
 import { LADDER, QualityMonitor, TIERS, TIER_COUNT, pickTier, type TierName } from "./tier";
 import { WaveHistory } from "./wave";
-import { keyChannel, releaseChannel, installKeyboard, stationStore, type KeyEvt } from "../bus";
+import { configStore, keyChannel, releaseChannel, installKeyboard, stationStore, type FinishId, type KeyEvt } from "../bus";
 import { BRAND } from "../brand";
 
 export interface EngineOptions {
@@ -57,6 +61,13 @@ export interface EngineOptions {
 type Assets = BuildResult;
 
 const FLOW_RMS = 3.96; // RMS |curl| of one octave, measured by scripts/physics-check.mjs
+const KEYBOARD_FORMS: FormName[] = ["keyboard", "layout"];
+/** finish tints relative to the particle colour: [case, keycaps]; ember is derived from the accent */
+const FINISH_TINTS: Record<Exclude<FinishId, "ember">, [number[], number[]]> = {
+  chalk: [[1, 1, 1], [1, 1, 1]],
+  graphite: [[0.3, 0.3, 0.33], [0.94, 0.94, 0.96]],
+};
+const CURVE_KEYS: (keyof SwitchCurve)[] = ["F0", "k", "bumpH", "bumpX", "bumpW", "spikeH", "spikeX0", "travel", "actX"];
 const TAU = Math.PI * 2;
 const FOV = 28;
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -85,6 +96,16 @@ function smoothDamp(cur: number, target: number, vel: { v: number }, smoothTime:
     vel.v = (out - target) / dt;
   }
   return out;
+}
+
+/**
+ * Scroll position at which a section's form is fully shown: centred for
+ * sections up to 1.25 viewports tall; taller ones (long copy on phones) are
+ * anchored 1/8 viewport in, so their visual-on-top layout still holds.
+ * Mirrored by the screenshot scripts (scripts/anchor.mjs).
+ */
+export function anchorScroll(top: number, height: number, vh: number) {
+  return top + Math.min(height - vh, 0.25 * vh) / 2;
 }
 
 async function loadGlyphs(): Promise<BuildContext["glyphs"]> {
@@ -217,6 +238,23 @@ export class Engine {
   private levelApplied = -1;
   // DOM callouts pinned to the exploded parts
   private callouts: { el: HTMLElement; y: number; hx: number; w: number; h: number; left: number; top: number }[] = [];
+  // generic DOM labels pinned to points of a form (data-anchor="form:name")
+  private anchorEls: { el: HTMLElement; form: FormName; name: string; idx: number }[] = [];
+  private readonly anchorP = new Vector3();
+  // configuration-driven state (eased)
+  private curve: SwitchCurve = { ...SWITCHES.linear };
+  private caseTint = new Vector3(1, 1, 1);
+  private keyTint = new Vector3(1, 1, 1);
+  private readonly tintTarget = [new Vector3(), new Vector3()];
+  private coilPhase = 0;
+  private coilPulse = new Vector4(-1, -1, -1, -1);
+  private coilNext = 0;
+  private fieldAnchorY = Infinity;
+  // tap / click to press a key
+  private touchStart: { x: number; y: number; t: number } | null = null;
+  private readonly ray = new Ray();
+  private readonly plane = new Plane(new Vector3(0, 1, 0), 0);
+  private readonly inv = new Matrix4();
   private readonly calloutP = new Vector3();
   private calloutBound: HTMLElement | null = null;
 
@@ -348,6 +386,11 @@ export class Engine {
       uWave: { value: new Vector4(WAVE.width, WAVE.depth, WAVE.height, WAVE.thickness) },
       uWave2: { value: new Vector4(WAVE.lines, WAVE.rowsPerLine, 0, WAVE.rows) },
       uField: { value: new Vector4(0.09, 0.33, 0.07, 0) },
+      uCurve: { value: new Vector4() },
+      uCurve2: { value: new Vector4(0.42, 34, 3.5, 4) },
+      uCurve3: { value: new Vector4(2, 0, 0, 0) },
+      uCoil: { value: new Vector4() },
+      uCoilPulse: { value: this.coilPulse },
     });
     this.initMat = rawMaterial(FULLSCREEN_VERT, INIT_FRAG, {
       uRes: { value: new Vector2(S, S) },
@@ -387,6 +430,10 @@ export class Engine {
       uOpacity: { value: 1 },
       uGlint: { value: 0 },
       uLooseFrac: { value: 0 },
+      uCaseTintA: { value: new Vector3(1, 1, 1) },
+      uCaseTintB: { value: new Vector3(1, 1, 1) },
+      uKeyTintA: { value: new Vector3(1, 1, 1) },
+      uKeyTintB: { value: new Vector3(1, 1, 1) },
       uColor: { value: new Vector3(...this.palette.particle) },
       uAccent: { value: new Vector3(...this.palette.accent) },
     });
@@ -521,13 +568,27 @@ export class Engine {
     this.listen(window, "blur", () => (this.cursorActive = false));
     this.listen(window, "touchstart", (e: TouchEvent) => {
       const t = e.touches[0];
-      if (t) this.setPointer(t.clientX, t.clientY, true);
+      if (t) {
+        this.setPointer(t.clientX, t.clientY, true);
+        this.touchStart = { x: t.clientX, y: t.clientY, t: performance.now() };
+      }
     });
     this.listen(window, "touchmove", (e: TouchEvent) => {
       const t = e.touches[0];
       if (t) this.setPointer(t.clientX, t.clientY);
     });
-    this.listen(window, "touchend", () => (this.cursorActive = false));
+    this.listen(window, "touchend", (e: TouchEvent) => {
+      this.cursorActive = false;
+      const s = this.touchStart, t = e.changedTouches[0];
+      this.touchStart = null;
+      if (s && t && performance.now() - s.t < 320 && Math.hypot(t.clientX - s.x, t.clientY - s.y) < 12 && !this.interactive(e.target)) {
+        this.tapKey(t.clientX, t.clientY);
+      }
+    });
+    this.listen(window, "pointerdown", (e: PointerEvent) => {
+      if (e.pointerType === "touch" || e.button !== 0 || this.interactive(e.target)) return;
+      this.tapKey(e.clientX, e.clientY);
+    });
     this.listen(window, "touchcancel", () => (this.cursorActive = false));
 
     const mq = matchMedia("(prefers-reduced-motion: reduce)");
@@ -644,8 +705,39 @@ export class Engine {
     }
   }
 
+  private measureAnchorEls() {
+    this.anchorEls = [];
+    for (const el of document.querySelectorAll<HTMLElement>("[data-anchor]")) {
+      const [form, name] = (el.dataset.anchor ?? "").split(":") as [FormName, string];
+      const idx = this.forms.indexOf(form);
+      if (idx >= 0 && name) this.anchorEls.push({ el, form, name, idx });
+    }
+    const field = document.querySelector<HTMLElement>('[data-form="field"]');
+    this.fieldAnchorY = field ? field.getBoundingClientRect().top + window.scrollY : Infinity;
+  }
+
+  /** Position every [data-anchor] label on its projected point; fade with the form. */
+  private updateAnchorEls() {
+    if (!this.anchorEls.length) return;
+    const W = this.opts.host.clientWidth, H = this.opts.host.clientHeight;
+    const p = this.anchorP;
+    for (const a of this.anchorEls) {
+      const near = 1 - Math.min(Math.abs(this.m - a.idx) / 0.2, 1);
+      if (near <= 0.001 || !anchorLocal(a.form, a.name, this.curve, p)) {
+        if (a.el.style.opacity !== "0") a.el.style.opacity = "0";
+        continue;
+      }
+      const pose = Math.floor(this.m) === a.idx ? this.xfA : this.xfB;
+      p.applyMatrix4(pose).project(this.camera);
+      const x = (p.x * 0.5 + 0.5) * W, y = (-p.y * 0.5 + 0.5) * H;
+      a.el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+      a.el.style.opacity = (near * near * (3 - 2 * near)).toFixed(3);
+    }
+  }
+
   private measureAnchors() {
     this.measureCallouts();
+    this.measureAnchorEls();
     if (!this.opts.scrollDriven) return;
     const els = Array.from(document.querySelectorAll<HTMLElement>("[data-form]"));
     const vh = window.innerHeight;
@@ -653,7 +745,7 @@ export class Engine {
       .map((el) => {
         const r = el.getBoundingClientRect();
         const top = r.top + window.scrollY;
-        return { form: this.forms.indexOf(el.dataset.form as FormName), y: top + r.height / 2 - vh / 2 };
+        return { form: this.forms.indexOf(el.dataset.form as FormName), y: anchorScroll(top, r.height, vh) };
       })
       .filter((a) => a.form >= 0)
       .sort((a, b) => a.y - b.y);
@@ -672,6 +764,36 @@ export class Engine {
     if (e.down && !e.repeat) this.react(e.index, e.code === "Space");
   }
 
+  private interactive(target: EventTarget | null) {
+    return target instanceof Element && !!target.closest("a, button, input, textarea, select, label, summary, [role='button'], [data-no-tap]");
+  }
+
+  /**
+   * Tap or click a particle keycap to press it: the ray from the camera is
+   * taken into the keyboard's local frame and intersected with the key plane.
+   * The press goes through the shared key channel, so the sound, the hint
+   * and the GPU all answer exactly as they do to a physical key.
+   */
+  private tapKey(x: number, y: number) {
+    const fi = Math.min(Math.max(Math.round(this.m), 0), this.forms.length - 1);
+    if (!KEYBOARD_FORMS.includes(this.forms[fi]) || Math.abs(this.m - fi) > 0.15) return;
+    const pose = fi === Math.floor(this.m) ? this.xfA : this.xfB;
+    const w = window.innerWidth, h = window.innerHeight;
+    const o = this.tmpV.copy(this.camera.position);
+    const d = this.tmpV2.set((x / w) * 2 - 1, -((y / h) * 2 - 1), 0.5).unproject(this.camera).sub(o).normalize();
+    this.inv.copy(pose).invert();
+    this.ray.set(o, d).applyMatrix4(this.inv);
+    this.plane.constant = -KEY_PLANE_Y;
+    const hit = this.ray.intersectPlane(this.plane, this.anchorP);
+    if (!hit) return;
+    const i = keyAt(hit.x, hit.z);
+    if (i < 0) return;
+    const k = KEYS[i];
+    const evt = { code: k.code, index: i, label: k.label, repeat: false, time: performance.now() };
+    keyChannel.emit({ ...evt, down: true });
+    setTimeout(() => keyChannel.emit({ ...evt, down: false, time: performance.now() }), 140);
+  }
+
   /** the current form answers a keystroke: a ring, a waveform packet… */
   private react(keyIndex: number, space: boolean) {
     const fi = Math.min(Math.max(Math.round(this.m), 0), this.forms.length - 1);
@@ -684,6 +806,7 @@ export class Engine {
     let gain = space ? 1.35 : 1;
     switch (name) {
       case "keyboard":
+      case "layout":
         if (keyIndex >= 0) o.fromArray(this.keyTops, keyIndex * 3);
         else o.set(0, 0, 0);
         o.applyMatrix4(pose);
@@ -708,7 +831,13 @@ export class Engine {
       case "waveform":
         this.wave?.hit(ku, space ? 1.25 : 1, space);
         return;
+      case "coil":
+        // the keystroke travels down the cable, from the keyboard to the plug
+        this.coilPulse.setComponent(this.coilNext, this.simTime + this.acc);
+        this.coilNext = (this.coilNext + 1) % 4;
+        return;
       default:
+        // the switch chart answers through the bead (any-key press) instead
         return;
     }
     const i = this.ripNext;
@@ -896,8 +1025,33 @@ export class Engine {
       (this.simMat.uniforms.uWave2.value as Vector4).z = this.wave.head - 1;
     }
 
+    // configuration: the switch reshapes the chart, the finish tints the board
+    const cfg = configStore.get();
+    const kCfg = 1 - Math.exp(-dt / 0.28);
+    const target = SWITCHES[cfg.switch];
+    for (const key of CURVE_KEYS) this.curve[key] += (target[key] - this.curve[key]) * kCfg;
+    const [ct, kt] = this.tintTarget;
+    if (cfg.finish === "ember") {
+      const acc = this.palette.accent, pc = this.palette.particle;
+      ct.set(Math.min((acc[0] / pc[0]) * 1.15, 1), Math.min((acc[1] / pc[1]) * 1.15, 1), Math.min((acc[2] / pc[2]) * 1.15, 1));
+      kt.set(1, 1, 1);
+    } else {
+      ct.fromArray(FINISH_TINTS[cfg.finish][0]);
+      kt.fromArray(FINISH_TINTS[cfg.finish][1]);
+    }
+    const kTint = 1 - Math.exp(-dt / 0.35);
+    this.caseTint.lerp(ct, kTint);
+    this.keyTint.lerp(kt, kTint);
+    this.coilPhase = (this.coilPhase + dt * (reduced ? 0.05 : 0.32)) % (Math.PI * 2000);
+    this.layout.fieldDrift = Math.max(0, window.scrollY - this.fieldAnchorY) / Math.max(window.innerHeight, 1);
+
     // ---- uniforms -------------------------------------------------------
     const su = this.simMat.uniforms;
+    const c = this.curve;
+    (su.uCurve.value as Vector4).set(c.F0, c.k, c.bumpH, c.bumpX);
+    (su.uCurve2.value as Vector4).set(c.bumpW, c.spikeH, c.spikeX0, c.travel);
+    (su.uCurve3.value as Vector4).set(c.actX, this.keyPress[ANY_KEY_SLOT], 0, 0);
+    (su.uCoil.value as Vector4).set(this.coilPhase, 0, 0, 0);
     const specA = FORM_SPECS[this.forms[a]], specB = FORM_SPECS[this.forms[b]];
     su.uPosA.value = this.formPos[a];
     su.uNrmA.value = this.formNrm[a];
@@ -947,6 +1101,11 @@ export class Engine {
     pu.uOpacity.value = P.render.alpha;
     pu.uGlint.value = reduced ? 0 : P.render.glint;
     pu.uLooseFrac.value = P.spring.looseFraction;
+    const tintFor = (fi: number, which: Vector3, out: Vector3) => (KEYBOARD_FORMS.includes(this.forms[fi]) ? out.copy(which) : out.set(1, 1, 1));
+    tintFor(a, this.caseTint, pu.uCaseTintA.value as Vector3);
+    tintFor(b, this.caseTint, pu.uCaseTintB.value as Vector3);
+    tintFor(a, this.keyTint, pu.uKeyTintA.value as Vector3);
+    tintFor(b, this.keyTint, pu.uKeyTintB.value as Vector3);
   }
 
   private simulate(dt: number) {
@@ -988,6 +1147,7 @@ export class Engine {
     (this.post.composite.uniforms.uGrade.value as Vector4).set(P.grade.vignette, P.grade.dither, P.bloom.strength, P.render.exposure);
     this.quad.render(r, this.post.composite, null);
     this.updateCallouts();
+    this.updateAnchorEls();
   }
 
   private initState() {
@@ -1083,6 +1243,7 @@ export class Engine {
         this.monitor.enabled = false;
       },
       probe: (idx: number[]) => this.probe(idx),
+      keyCode: (i: number) => KEYS[i]?.code,
       key: (code: string) => {
         const i = KEYS.findIndex((k) => k.code === code);
         return i >= 0 ? this.keyPress[i] : -1;

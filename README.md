@@ -1,9 +1,13 @@
 # MOTE — a particle landing page for a quiet keyboard
 
-A landing page for **Mote 75**, a (fictional) premium mechanical keyboard,
-whose every image is made of GPU particles: dust assembles into a 3-D 75 %
-keyboard, which becomes an exploded switch, a ridgeline of sound that reacts
-to typing, the wordmark, and a calm horizon.
+A product page for **Mote 75**, a (fictional) premium mechanical keyboard,
+whose every image is made of GPU particles. Dust assembles into a 3-D 75 %
+keyboard (tap or type to press its keys), which becomes an exploded switch,
+a force curve you can re-shape by choosing a switch, a ridgeline of sound
+that reacts to typing, the keyboard from above in three finishes, a coiled
+cable that carries every keystroke, the wordmark, and a calm horizon under
+the process, lineup, specifications, contents, reviews, FAQ and a
+configured reservation.
 
 * **Design + physics reasoning:** [PHYSICS.md](PHYSICS.md) (written before
   the code; includes the generated parameter table, verification numbers
@@ -37,6 +41,7 @@ npm run physics:check    # CPU reference of the integrator, noise, divergence
 npm run adaptive:check   # adaptive quality ladder under synthetic load
 npm run params:doc       # regenerate the PHYSICS.md parameter table
 BASE=http://localhost:3000 npm run verify   # 19 behavioural browser checks
+BASE=http://localhost:3000 npm run interactions  # configurator + tap/typing checks
 BASE=http://localhost:3000 npm run shoot    # screenshots at 1440 and 390 px
 ```
 
@@ -48,10 +53,14 @@ The browser scripts use headless Chromium on the real GPU
 ```
 app/                 page, layout (fonts, tokens), procedural icon, /lab
 components/          ParticleStage (next/dynamic ssr:false) → ParticleCanvas,
-                     SoundToggle, TypeHint, Reveal, SmoothScroll, ReserveForm
+                     sections/ (one file per chapter + PinnedLabels),
+                     SwitchPicker, FinishPicker, DemoTyper, ReserveSummary,
+                     SoundToggle, TypeHint, Reveal, SmoothScroll, ui (Pin…)
+lib/product.ts       product content (switches, finishes, specs, FAQ…)
 lib/engine/          Engine (loop, input, uniforms), gpu (MRT ping-pong, bloom),
                      glsl/ (sim, particles, post, noise), shapes/ (keyboard,
-                     exploded, waveform, wordmark, field, dust), sampling,
+                     exploded, curve, waveform, coil, wordmark, field,
+                     dust), sampling,
                      assign (tiered bisection matching), build(.worker),
                      params (single source of truth), tier (adaptive quality)
 lib/bus.ts           key events shared by DOM, audio and GPU

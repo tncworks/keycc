@@ -96,3 +96,17 @@ export function store<T>(initial: T) {
 export const soundStore = store(false);
 /** 0..N: which story section the engine is showing (rounded morph coordinate) */
 export const stationStore = store(0);
+
+export type FinishId = "chalk" | "graphite" | "ember";
+export type SwitchId = "linear" | "tactile" | "silent";
+export type LayoutId = "ansi" | "iso";
+export interface Config {
+  finish: FinishId;
+  switch: SwitchId;
+  layout: LayoutId;
+}
+/** The visitor's configuration: pickers write it, the engine and the reserve summary read it. */
+export const configStore = store<Config>({ finish: "chalk", switch: "linear", layout: "ansi" });
+export function setConfig(patch: Partial<Config>) {
+  configStore.set({ ...configStore.get(), ...patch });
+}

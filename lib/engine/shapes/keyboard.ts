@@ -60,6 +60,27 @@ function keyCentre(i: number): [number, number] {
   return [(k.x + k.w / 2) * P - FIELD_HX, (k.y + 0.5) * P - FIELD_HZ];
 }
 
+/** Top of the knob, in shape units (label anchor). */
+export const KNOB_TOP: [number, number, number] = [
+  ((KNOB.x + KNOB.w / 2) * P - FIELD_HX) * MM,
+  (CAP_Y0 + 11.5 + Y_SHIFT) * MM,
+  ((KNOB.y + 0.5) * P - FIELD_HZ) * MM,
+];
+
+/** Key index under a point on the key plane (shape units), or -1. */
+export function keyAt(x: number, z: number): number {
+  const X = x / MM, Z = z / MM;
+  for (let i = 0; i < KEYS.length; i++) {
+    const [cx, cz] = keyCentre(i);
+    const hx = (KEYS[i].w * P) / 2, hz = P / 2;
+    if (Math.abs(X - cx) <= hx && Math.abs(Z - cz) <= hz) return i;
+  }
+  return -1;
+}
+
+/** Height of the key tops (shape units), for hit-testing taps. */
+export const KEY_PLANE_Y = (CAP_Y0 + 8.3 + Y_SHIFT) * MM;
+
 /** Top surface centre of every key, in shape units (for ripple origins). */
 export function keyTops(): Float32Array {
   const out = new Float32Array(KEYS.length * 3);

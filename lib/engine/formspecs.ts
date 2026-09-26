@@ -2,6 +2,8 @@
  * Form specifications: how each form is sampled and how it behaves.
  * Free of DOM and three.js so the build can run in a Web Worker.
  */
+import { buildCoil } from "./shapes/coil";
+import { buildCurve } from "./shapes/curve";
 import { buildDust } from "./shapes/dust";
 import { buildExploded } from "./shapes/exploded";
 import { buildField } from "./shapes/field";
@@ -11,9 +13,9 @@ import { buildWordmark, type GlyphMask } from "./shapes/wordmark";
 import type { Rng } from "./random";
 import { xfIdentity, xfRotX, xfRotY, xfRotZ, xfMul, type ShapeBuffer, type Xf } from "./sampling";
 
-export type FormName = "dust" | "keyboard" | "exploded" | "waveform" | "wordmark" | "field";
+export type FormName = "dust" | "keyboard" | "exploded" | "curve" | "waveform" | "layout" | "coil" | "wordmark" | "field";
 
-export const KIND = { static: 0, keyboard: 1, wave: 2, field: 3 } as const;
+export const KIND = { static: 0, keyboard: 1, wave: 2, field: 3, curve: 4, coil: 5 } as const;
 
 export interface BuildContext {
   glyphs: GlyphMask | null;
@@ -38,6 +40,9 @@ export const EXPLODED_PITCH = (16 * Math.PI) / 180;
 export const EXPLODED_YAW = (-34 * Math.PI) / 180;
 export const EXPLODED_ROLL = (-11 * Math.PI) / 180;
 export const WAVE_PITCH = (13 * Math.PI) / 180;
+export const CURVE_YAW = (-16 * Math.PI) / 180;
+export const CURVE_PITCH = (4 * Math.PI) / 180;
+export const LAYOUT_PITCH = (70 * Math.PI) / 180;
 
 export const FORM_SPECS: Record<FormName, FormSpec> = {
   dust: {
@@ -76,6 +81,34 @@ export const FORM_SPECS: Record<FormName, FormSpec> = {
     matchPose: xfRotX(WAVE_PITCH),
     keyTravel: 0,
     build: (N, rng) => buildWaveform(N, rng),
+  },
+  curve: {
+    name: "curve",
+    kind: KIND.curve,
+    // stiff: the chart must track a switch change and read as precise
+    stiffness: 3,
+    wind: 0.5,
+    matchPose: xfMul(xfRotX(CURVE_PITCH), xfRotY(CURVE_YAW)),
+    keyTravel: 0,
+    build: (N, rng) => buildCurve(N, rng),
+  },
+  layout: {
+    name: "layout",
+    kind: KIND.keyboard,
+    stiffness: 1,
+    wind: 1,
+    matchPose: xfRotX(LAYOUT_PITCH),
+    keyTravel: 0.04,
+    build: (N, rng) => ({ buf: buildKeyboard(N, rng) }),
+  },
+  coil: {
+    name: "coil",
+    kind: KIND.coil,
+    stiffness: 2.5,
+    wind: 0.8,
+    matchPose: xfIdentity(),
+    keyTravel: 0,
+    build: (N, rng) => buildCoil(N, rng),
   },
   wordmark: {
     name: "wordmark",

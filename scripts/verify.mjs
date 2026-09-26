@@ -120,14 +120,15 @@ const ready = (page) => page.waitForFunction(() => window.__mote, null, { timeou
     m.advance(4);
     const idx = Array.from({ length: 400 }, (_, i) => (i * 257) % m.stats().N);
     const a = m.probe(idx).pos;
-    // scroll the story forward to the field and back, like a user
-    for (let k = 0; k <= 80; k++) {
-      m.setMorph((4 * k) / 80);
+    // scroll the whole story forward to the last form and back, like a user
+    const last = m.engine.forms.length - 1;
+    for (let k = 0; k <= 40 * last; k++) {
+      m.setMorph(k / 40);
       m.advance(1 / 20);
     }
     const mid = m.probe(idx).pos;
-    for (let k = 80; k >= 0; k--) {
-      m.setMorph((4 * k) / 80);
+    for (let k = 40 * last; k >= 0; k--) {
+      m.setMorph(k / 40);
       m.advance(1 / 20);
     }
     m.advance(4);
@@ -136,7 +137,7 @@ const ready = (page) => page.waitForFunction(() => window.__mote, null, { timeou
     const sorted = a.map((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1], p[2] - b[i][2])).sort((x, y) => x - y);
     return { back: d(a, b), away: d(a, mid), p95: sorted[Math.floor(sorted.length * 0.95)] };
   });
-  check("morphs reverse cleanly (keyboard → field → keyboard)", r.back < 0.02 * r.away && r.p95 < 0.05, `mean return error ${r.back.toFixed(4)} u vs ${r.away.toFixed(2)} u travelled; p95 ${r.p95.toFixed(4)} u`);
+  check("morphs reverse cleanly (all eight forms and back)", r.back < 0.02 * r.away && r.p95 < 0.05, `mean return error ${r.back.toFixed(4)} u vs ${r.away.toFixed(2)} u travelled; p95 ${r.p95.toFixed(4)} u`);
   await ctx.close();
 }
 

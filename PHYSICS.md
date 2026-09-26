@@ -792,3 +792,77 @@ motion strips (`scripts/strip.mjs`), numeric probes → critique → change.
   showed its edges); keyboard case chamfer 1.35 → 1.08 and walls 0.52 → 0.40
   so the key tops lead; mobile wordmark 86 → 80 % width; mobile anatomy copy
   lower.
+
+---
+
+## 14. Round 2 — from story to product page
+
+The page grew from a five-form story into a complete product page: switches,
+design and finishes, connectivity, process, specifications, contents,
+reviews, FAQ and a configured reservation. Three new particle forms carry
+the new chapters, so the page is still one continuous morph (8 forms + dust).
+
+### 14.1 New forms
+
+| form | kind | what the particles do |
+|---|---|---|
+| `curve` | 4 · procedural | A force-vs-travel chart. Samples store `(u, role·4 + v, w)`; the shader evaluates the **live switch curve** (`F0 + k·x + bump + bottom-out spike`, mirrored by `force()` in `shapes/curve.ts`). Roles: downstroke tube, dashed upstroke, gradient fill, axes/ticks/dotted grid, ember actuation ring + guide. Choosing Linear/Tactile/Silent eases the nine curve parameters (τ = 0.28 s) and the particles glide to the new graph. The **bead**: particles near `u = press(any key)` brighten, so a held key rides down the curve; the actuation ring lights when the bead passes it. Stiffness ×3 so the chart reads as precise. |
+| `layout` | keyboard | The same keyboard sampled again and posed from above (70°), for the Design chapter: layout, finishes and pinned details. Key depression, ripples and tap-to-press work exactly as in the hero. |
+| `coil` | 5 · procedural | A coiled aviator cable: USB-C plug, straight run, 58-turn coil, aviator connector, run to the keyboard, along one cubic Bézier. Samples store `(s, part·4 + a, b)`; the shader rebuilds the tube frame (`T`, `N = T × up`, `B`), so a slowly advancing **phase** turns the coil and its coils appear to travel. Each keystroke launches a **pulse** that runs from the keyboard end to the plug (four in flight). The GLSL and the CPU mirror (`coilPoint`) are generated from the same constants. |
+
+Matching still runs chain-wise; in normalised view space the new links cut
+mean travel by 32–72 % versus random (exploded→curve 0.89 vs 1.30,
+curve→waveform 0.61 vs 1.33, waveform→layout 0.37 vs 1.31, layout→coil
+0.41 vs 1.23). The worker build is ≈ 0.97 s for 102 400 particles × 9 forms.
+
+### 14.2 Finishes as a tint, not a new palette
+
+The finish picker (Chalk / Graphite / Ember) must change the particle
+keyboard without breaking the one-accent rule elsewhere. The sim already
+packs each particle's key id into `velocity.w`; the render shader splits
+keyboard particles into **keycaps** (id ≥ 0) and **case** (id < 0) and
+multiplies them by per-slot tints. Only keyboard forms get non-white tints,
+so the dust, the chart and the wordmark are untouched. Ember is derived from
+the `--color-accent` token (accent ÷ particle colour), so it stays in the
+palette. Tints ease over 0.35 s.
+
+### 14.3 Labels pinned to particles
+
+A generic `data-anchor="form:name"` label (`<Pin>`): the engine projects a
+local anchor point of the form every frame (chart ticks, the live actuation
+point, Esc/knob/space/arrows on the layout, plug and aviator on the cable)
+and fades the label with the form's presence. The exploded switch keeps its
+column-with-leader-lines layout (§13).
+
+### 14.4 Tap or click a keycap
+
+Phones cannot type, so the keyboard answers to touch. The pointer ray is
+taken into the keyboard's local frame (inverse pose), intersected with the
+key plane, and `keyAt()` finds the key; the press is emitted on the shared
+key channel, so the keycap, the ripple, the sound and the hint react exactly
+as they do to a physical key. Taps are distinguished from scroll drags
+(< 320 ms, < 12 px); clicks on links, buttons and form controls are ignored.
+
+### 14.5 Anchoring tall sections
+
+On phones the copy makes some sections much taller than 125 svh, and
+centring them at their scroll anchor pushed the copy up into the visual.
+The anchor is now `top + min(h − vh, vh/4) / 2`: identical to centring for
+125 svh sections (desktop), 1/8 viewport in for taller ones, so the
+visual-on-top / copy-below phone layout holds. `scripts/anchor.mjs` mirrors
+it for the screenshot tools.
+
+### 14.6 Details
+
+* The closing horizon turns ~3° per viewport scrolled through the last
+  seven sections (clamped), and is 32 % dimmer so long passages of text
+  (specifications, FAQ) sit over it comfortably.
+* "Play a sentence" types *quiet keys, loud ideas.* through the key channel at
+  a human cadence — the ridgeline (and the synth, if sound is on) answers,
+  without a keyboard.
+* The reservation card reads the configuration (finish, switch, ANSI/ISO)
+  and the price; "Change" links jump back to the chapter that sets it.
+* Verified by `npm run interactions` (click a keycap → press; tabs → curve;
+  demo → ridges; swatch → tint; reserve summary; no console errors) and the
+  extended `npm run verify` (morph reversal now through all eight forms:
+  0.015 u error over 3.2 u travelled).

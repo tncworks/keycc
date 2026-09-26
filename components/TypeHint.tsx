@@ -32,14 +32,14 @@ export default function TypeHint() {
   return (
     <div className="flex items-center gap-3 font-mono text-label uppercase text-muted" aria-hidden>
       <span
-        className={`inline-flex h-7 [@media(pointer:coarse)]:hidden min-w-7 items-center justify-center rounded-[6px] border px-2 text-[10px] tracking-[0.08em] normal-case transition-all duration-150 ease-calm ${
+        className={`inline-flex h-7 min-w-7 items-center justify-center rounded-[6px] border px-2 text-[10px] tracking-[0.08em] normal-case transition-all duration-150 ease-calm ${
           down ? "translate-y-px border-accent/70 text-ink shadow-none" : "border-line text-muted shadow-[0_1px_0_0_rgb(236_230_220/0.14)]"
         }`}
       >
         {label}
       </span>
-      <span className="transition-opacity duration-700 [@media(pointer:coarse)]:hidden">{typed ? "Keep going" : "Type anything"}</span>
-      <span className="hidden [@media(pointer:coarse)]:inline">Drag through the dust</span>
+      <span className="transition-opacity duration-700 [@media(pointer:coarse)]:hidden">{typed ? "Keep going" : "Type, or click a key"}</span>
+      <span className="hidden [@media(pointer:coarse)]:inline">Tap a key</span>
     </div>
   );
 }
